@@ -59,15 +59,16 @@ A single CLI command produces all intermediate artifacts plus a valid vertical M
 The content-engine foundation is complete for the local deterministic subset:
 
 ```text
-Topic -> ResearchResult -> Script
+Topic -> ResearchResult -> Script -> ScenePlan
 ```
 
-`create-content` writes `topic.json`, `research.json`, `script.json`, and `manifest.json` under
+`create-content` writes `topic.json`, `research.json`, `script.json`, `scenes.json`, and `manifest.json` under
 `data/projects/<project-id>/`. The current providers support only the reference manhole-cover
 topic and exist to validate ports, contracts, orchestration and reproducible persistence before
-external AI or research integrations. Scene planning, narration, assets, subtitles and rendering
-remain future work; therefore this subset does not yet satisfy the full Phase 1 vertical-MP4
-definition of done.
+external AI or research integrations. The deterministic scene plan contains a continuous,
+eight-scene, 34-second audiovisual timeline. Narration, assets, subtitles and rendering remain
+future work; therefore this subset does not yet satisfy the full Phase 1 vertical-MP4 definition
+of done.
 
 ---
 

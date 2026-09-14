@@ -72,14 +72,20 @@ data/projects/<project-id>/
 ├── topic.json
 ├── research.json
 ├── script.json
+├── scenes.json
 └── manifest.json
 ```
 
 Use `--output-dir <path>` to choose another root. The project identifier and JSON content are
-stable for the same input. The local research and script adapters are intentional deterministic
-fixtures: they validate the pipeline offline before they are replaced by AI-backed research and
-script adapters. They support only the reference topic. No web search, HTTP API, LLM, scene
-planner, narration, media generation, renderer, database or publishing integration exists yet.
+stable for the same input. The local research, script and scene-planning adapters are intentional
+deterministic fixtures: they validate the pipeline offline before they are replaced by AI-backed
+adapters. They support only the reference topic. No web search, HTTP API, LLM-backed planner,
+narration, media generation, renderer, database or publishing integration exists yet.
+
+`scenes.json` is a deterministic audiovisual timeline. Each scene has a narration segment,
+continuous start/end/duration estimates, a separate visual instruction and purpose, an asset type,
+and optional on-screen text or transition suggestion. It is planning data only: future TTS, visual
+assets, subtitles, transitions and rendering will consume it, but this command creates no media.
 
 Run the quality checks:
 

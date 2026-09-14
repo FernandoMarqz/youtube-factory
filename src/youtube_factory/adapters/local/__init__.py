@@ -2,6 +2,12 @@
 
 from youtube_factory.adapters.local.artifact_store import FileSystemArtifactStore
 from youtube_factory.adapters.local.research import LocalResearchProvider
+from youtube_factory.adapters.local.scene_planner import LocalScenePlanner
 from youtube_factory.adapters.local.script_generator import LocalScriptGenerator
 
-__all__ = ["FileSystemArtifactStore", "LocalResearchProvider", "LocalScriptGenerator"]
+__all__ = [
+    "FileSystemArtifactStore",
+    "LocalResearchProvider",
+    "LocalScenePlanner",
+    "LocalScriptGenerator",
+]

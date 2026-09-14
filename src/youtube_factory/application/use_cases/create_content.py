@@ -12,10 +12,15 @@ from youtube_factory.application.exceptions import (
     IncompletePipelineError,
     ProviderContractError,
 )
-from youtube_factory.domain.models import ContentManifest, ResearchResult, Script, Topic
-from youtube_factory.ports import ProjectArtifactStore, ResearchProvider, ScriptGenerator
+from youtube_factory.domain.models import ContentManifest, ResearchResult, ScenePlan, Script, Topic
+from youtube_factory.ports import (
+    ProjectArtifactStore,
+    ResearchProvider,
+    ScenePlanner,
+    ScriptGenerator,
+)
 
-PIPELINE_VERSION = "phase-1-local-v1"
+PIPELINE_VERSION = "phase-2-scene-planning-v1"
 _PROJECT_NAMESPACE = UUID("ffb67c5b-9e6f-46bd-aace-3f3a783d90b4")
 _DETERMINISTIC_CREATED_AT = datetime(2026, 1, 1)
 
@@ -29,6 +34,7 @@ class CreateContentResult:
     topic: Topic
     research: ResearchResult
     script: Script
+    scene_plan: ScenePlan
     manifest: ContentManifest
 
 
@@ -39,34 +45,45 @@ class CreateContentUseCase:
         self,
         research_provider: ResearchProvider,
         script_generator: ScriptGenerator,
+        scene_planner: ScenePlanner,
         artifact_store: ProjectArtifactStore,
     ) -> None:
         self._research_provider = research_provider
         self._script_generator = script_generator
+        self._scene_planner = scene_planner
         self._artifact_store = artifact_store
 
     def execute(self, topic_title: str) -> CreateContentResult:
-        """Create and persist deterministic research and script artifacts."""
+        """Create and persist deterministic research, script and scene-plan artifacts."""
         project_id = uuid5(_PROJECT_NAMESPACE, topic_title.strip())
         topic = Topic(id=project_id, title=topic_title, created_at=_DETERMINISTIC_CREATED_AT)
         research = self._research(topic)
         script = self._generate_script(topic, research)
+        scene_plan = self._plan_scenes(script)
         manifest = ContentManifest(
             project_id=project_id,
             pipeline_version=PIPELINE_VERSION,
             topic=topic.title,
             topic_id=topic.id,
-            artifacts=("topic.json", "research.json", "script.json", "manifest.json"),
+            artifacts=(
+                "topic.json",
+                "research.json",
+                "script.json",
+                "scenes.json",
+                "manifest.json",
+            ),
             research_provider=self._research_provider.identifier,
             script_generator=self._script_generator.identifier,
+            scene_planner=self._scene_planner.identifier,
         )
-        project_directory = self._persist(project_id, topic, research, script, manifest)
+        project_directory = self._persist(project_id, topic, research, script, scene_plan, manifest)
         return CreateContentResult(
             project_id=project_id,
             project_directory=project_directory,
             topic=topic,
             research=research,
             script=script,
+            scene_plan=scene_plan,
             manifest=manifest,
         )
 
@@ -88,17 +105,27 @@ class CreateContentUseCase:
             raise ProviderContractError("script generator returned a script for a different topic")
         return script
 
+    def _plan_scenes(self, script: Script) -> ScenePlan:
+        try:
+            scene_plan = ScenePlan.model_validate(self._scene_planner.plan(script))
+        except ValidationError as error:
+            raise ProviderContractError("scene planner returned an invalid contract") from error
+        if scene_plan.topic_id != script.topic_id:
+            raise ProviderContractError("scene planner returned a plan for a different topic")
+        return scene_plan
+
     def _persist(
         self,
         project_id: UUID,
         topic: Topic,
         research: ResearchResult,
         script: Script,
+        scene_plan: ScenePlan,
         manifest: ContentManifest,
     ) -> Path:
         try:
             project_directory = self._artifact_store.save(
-                str(project_id), topic, research, script, manifest
+                str(project_id), topic, research, script, scene_plan, manifest
             )
         except ArtifactPersistenceError:
             raise

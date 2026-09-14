@@ -82,24 +82,25 @@ RenderShortUseCase
 RenderResult
 ```
 
-## Phase 1 Content Engine Foundation
+## Local Content Engine Foundation
 
 The first executable subset is deliberately limited to:
 
 ```text
-CLI -> CreateContentUseCase -> ResearchProvider -> ScriptGenerator -> ProjectArtifactStore
-                                  |                    |                 |
-                           ResearchResult             Script       JSON artifacts
+CLI -> CreateContentUseCase -> ResearchProvider -> ScriptGenerator -> ScenePlanner -> ProjectArtifactStore
+                                  |                    |                |                |
+                           ResearchResult             Script         ScenePlan       JSON artifacts
 ```
 
 `CreateContentUseCase` owns orchestration. The CLI only assembles local adapters and displays
 the result. The domain does not import ports or adapters.
 
-Current ports are `ResearchProvider`, `ScriptGenerator`, and `ProjectArtifactStore`. Their
-Phase 1 implementations are `LocalResearchProvider`, `LocalScriptGenerator`, and
-`FileSystemArtifactStore`. The first two are deterministic, fixture-like adapters for the
-reference topic; they make contracts, artifact persistence, and reproducibility testable before
-they are replaced by AI-backed or source-backed implementations.
+Current ports are `ResearchProvider`, `ScriptGenerator`, `ScenePlanner`, and
+`ProjectArtifactStore`. Their local implementations are `LocalResearchProvider`,
+`LocalScriptGenerator`, `LocalScenePlanner`, and `FileSystemArtifactStore`. The first three are
+deterministic, fixture-like adapters for the reference topic; they make contracts, artifact
+persistence, and reproducibility testable before they are replaced by AI-backed or source-backed
+implementations.
 
 Running the local slice creates:
 
@@ -108,12 +109,20 @@ data/projects/<project-id>/
 ├── topic.json
 ├── research.json
 ├── script.json
+├── scenes.json
 └── manifest.json
 ```
 
 The artifact store serializes Pydantic models as UTF-8, indented and key-sorted JSON. The
 manifest contains the stable pipeline version, provider identifiers, topic and generated files.
 No network request is performed in this phase.
+
+`ScenePlan` is a provider-independent audiovisual timeline. Each scene carries ordered sequence
+numbers, continuous start/end timing, duration, narration segment, visual description, visual
+intent, asset type, optional on-screen text and optional transition suggestion. The domain
+validates that the timeline starts at zero, has no gaps or overlaps, and ends at the total duration.
+Scene planning stays separate from visual generation so future TTS, visual assets, subtitles,
+transitions and FFmpeg rendering can consume `scenes.json` without reinterpreting the script.
 
 ## Domain Model Direction
 

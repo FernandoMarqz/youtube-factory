@@ -6,10 +6,11 @@ from uuid import uuid4
 from youtube_factory.adapters.local import (
     FileSystemArtifactStore,
     LocalResearchProvider,
+    LocalScenePlanner,
     LocalScriptGenerator,
 )
 from youtube_factory.application.use_cases import CreateContentUseCase
-from youtube_factory.domain.models import ContentManifest, ResearchResult, Script, Topic
+from youtube_factory.domain.models import ContentManifest, ResearchResult, ScenePlan, Script, Topic
 
 
 def test_local_providers_are_deterministic_for_the_reference_topic() -> None:
@@ -28,7 +29,10 @@ def test_local_providers_are_deterministic_for_the_reference_topic() -> None:
 
 def test_file_system_store_writes_parseable_domain_models(tmp_path: Path) -> None:
     use_case = CreateContentUseCase(
-        LocalResearchProvider(), LocalScriptGenerator(), FileSystemArtifactStore(tmp_path)
+        LocalResearchProvider(),
+        LocalScriptGenerator(),
+        LocalScenePlanner(),
+        FileSystemArtifactStore(tmp_path),
     )
     result = use_case.execute("¿Por qué las tapas de alcantarilla son redondas?")
 
@@ -39,6 +43,9 @@ def test_file_system_store_writes_parseable_domain_models(tmp_path: Path) -> Non
     script = Script.model_validate_json(
         (result.project_directory / "script.json").read_text("utf-8")
     )
+    scene_plan = ScenePlan.model_validate_json(
+        (result.project_directory / "scenes.json").read_text("utf-8")
+    )
     manifest = ContentManifest.model_validate_json(
         (result.project_directory / "manifest.json").read_text("utf-8")
     )
@@ -46,6 +53,7 @@ def test_file_system_store_writes_parseable_domain_models(tmp_path: Path) -> Non
     assert topic == result.topic
     assert research == result.research
     assert script == result.script
+    assert scene_plan == result.scene_plan
     assert manifest == result.manifest
 
     first_script_json = (result.project_directory / "script.json").read_text("utf-8")

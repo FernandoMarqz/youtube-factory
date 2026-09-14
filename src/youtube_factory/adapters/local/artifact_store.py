@@ -7,7 +7,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from youtube_factory.application.exceptions import ArtifactPersistenceError
-from youtube_factory.domain.models import ContentManifest, ResearchResult, Script, Topic
+from youtube_factory.domain.models import ContentManifest, ResearchResult, ScenePlan, Script, Topic
 
 
 class FileSystemArtifactStore:
@@ -22,6 +22,7 @@ class FileSystemArtifactStore:
         topic: Topic,
         research: ResearchResult,
         script: Script,
+        scene_plan: ScenePlan,
         manifest: ContentManifest,
     ) -> Path:
         """Persist all Phase 1 artifacts and return their project directory."""
@@ -31,6 +32,7 @@ class FileSystemArtifactStore:
             self._write_model(project_directory / "topic.json", topic)
             self._write_model(project_directory / "research.json", research)
             self._write_model(project_directory / "script.json", script)
+            self._write_model(project_directory / "scenes.json", scene_plan)
             self._write_model(project_directory / "manifest.json", manifest)
         except OSError as error:
             raise ArtifactPersistenceError("could not write project artifacts") from error

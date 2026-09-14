@@ -4,10 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from youtube_factory.adapters.local import LocalResearchProvider, LocalScriptGenerator
+from youtube_factory.adapters.local import (
+    LocalResearchProvider,
+    LocalScenePlanner,
+    LocalScriptGenerator,
+)
 from youtube_factory.application.exceptions import UnsupportedTopicError
 from youtube_factory.application.use_cases import CreateContentUseCase
-from youtube_factory.domain.models import ResearchResult, Script, Topic
+from youtube_factory.domain.models import ResearchResult, ScenePlan, Script, Topic
 
 
 class RecordingResearchProvider:
@@ -36,6 +40,20 @@ class RecordingScriptGenerator:
     def generate(self, topic: Topic, research: ResearchResult) -> Script:
         self.invocations.append((topic, research))
         return self._delegate.generate(topic, research)
+
+
+class RecordingScenePlanner:
+    """Port test double that records the supplied script."""
+
+    identifier = "recording-scene-planner"
+
+    def __init__(self) -> None:
+        self.invocations: list[Script] = []
+        self._delegate = LocalScenePlanner()
+
+    def plan(self, script: Script) -> ScenePlan:
+        self.invocations.append(script)
+        return self._delegate.plan(script)
 
 
 class RecordingArtifactStore:
@@ -68,25 +86,42 @@ class FailingScriptGenerator:
         raise UnsupportedTopicError("script generation is unavailable")
 
 
+class FailingScenePlanner:
+    """Scene-planning port that models a local planning failure."""
+
+    identifier = "failing-scene-planner"
+
+    def plan(self, script: Script) -> ScenePlan:
+        raise UnsupportedTopicError("scene planning is unavailable")
+
+
 def test_use_case_orchestrates_through_ports(tmp_path: Path) -> None:
     research_provider = RecordingResearchProvider()
     script_generator = RecordingScriptGenerator()
+    scene_planner = RecordingScenePlanner()
     artifact_store = RecordingArtifactStore(tmp_path)
-    use_case = CreateContentUseCase(research_provider, script_generator, artifact_store)
+    use_case = CreateContentUseCase(
+        research_provider, script_generator, scene_planner, artifact_store
+    )
 
     result = use_case.execute("¿Por qué las tapas de alcantarilla son redondas?")
 
     assert len(research_provider.invocations) == 1
     assert len(script_generator.invocations) == 1
+    assert len(scene_planner.invocations) == 1
     assert artifact_store.invocations == 1
     assert result.research.topic_id == result.topic.id
     assert result.script.topic_id == result.topic.id
+    assert result.scene_plan.topic_id == result.topic.id
     assert result.project_directory == tmp_path / str(result.project_id)
 
 
 def test_use_case_propagates_research_provider_failure(tmp_path: Path) -> None:
     use_case = CreateContentUseCase(
-        FailingResearchProvider(), LocalScriptGenerator(), RecordingArtifactStore(tmp_path)
+        FailingResearchProvider(),
+        LocalScriptGenerator(),
+        LocalScenePlanner(),
+        RecordingArtifactStore(tmp_path),
     )
 
     with pytest.raises(UnsupportedTopicError, match="research is unavailable"):
@@ -95,8 +130,23 @@ def test_use_case_propagates_research_provider_failure(tmp_path: Path) -> None:
 
 def test_use_case_propagates_script_provider_failure(tmp_path: Path) -> None:
     use_case = CreateContentUseCase(
-        LocalResearchProvider(), FailingScriptGenerator(), RecordingArtifactStore(tmp_path)
+        LocalResearchProvider(),
+        FailingScriptGenerator(),
+        LocalScenePlanner(),
+        RecordingArtifactStore(tmp_path),
     )
 
     with pytest.raises(UnsupportedTopicError, match="script generation is unavailable"):
         use_case.execute("¿Por qué las tapas de alcantarilla son redondas?")
+
+
+def test_use_case_does_not_persist_a_partial_pipeline_when_planning_fails(tmp_path: Path) -> None:
+    artifact_store = RecordingArtifactStore(tmp_path)
+    use_case = CreateContentUseCase(
+        LocalResearchProvider(), LocalScriptGenerator(), FailingScenePlanner(), artifact_store
+    )
+
+    with pytest.raises(UnsupportedTopicError, match="scene planning is unavailable"):
+        use_case.execute("¿Por qué las tapas de alcantarilla son redondas?")
+
+    assert artifact_store.invocations == 0

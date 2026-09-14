@@ -1,6 +1,7 @@
 """Pydantic contracts exchanged between pipeline stages."""
 
 from datetime import datetime
+from math import isclose
 from typing import Annotated
 from uuid import UUID, uuid4
 
@@ -78,6 +79,7 @@ class ContentManifest(DomainModel):
     artifacts: tuple[NonEmptyText, ...] = Field(min_length=1)
     research_provider: NonEmptyText
     script_generator: NonEmptyText
+    scene_planner: NonEmptyText | None = None
 
 
 class Scene(DomainModel):
@@ -85,10 +87,27 @@ class Scene(DomainModel):
 
     sequence: PositiveSequence
     narration_segment: NonEmptyText
+    start_seconds: Annotated[float, Field(ge=0)]
+    end_seconds: PositiveSeconds
     visual_description: NonEmptyText
+    visual_intent: NonEmptyText
     duration_seconds: PositiveSeconds
     asset_type: AssetType
     on_screen_text: str | None = None
+    transition_suggestion: str | None = None
+
+    @model_validator(mode="after")
+    def has_consistent_timing(self) -> "Scene":
+        if self.end_seconds <= self.start_seconds:
+            raise ValueError("scene end time must be greater than its start time")
+        if not isclose(
+            self.duration_seconds,
+            self.end_seconds - self.start_seconds,
+            rel_tol=0.0,
+            abs_tol=0.001,
+        ):
+            raise ValueError("scene duration must equal end time minus start time")
+        return self
 
 
 class ScenePlan(DomainModel):
@@ -96,6 +115,7 @@ class ScenePlan(DomainModel):
 
     topic_id: UUID
     scenes: list[Scene] = Field(min_length=1)
+    total_duration_seconds: PositiveSeconds
 
     @model_validator(mode="after")
     def has_contiguous_scene_sequences(self) -> "ScenePlan":
@@ -103,6 +123,23 @@ class ScenePlan(DomainModel):
         expected = list(range(1, len(self.scenes) + 1))
         if sequences != expected:
             raise ValueError("scene sequences must be contiguous and start at 1")
+        if not isclose(self.scenes[0].start_seconds, 0.0, rel_tol=0.0, abs_tol=0.001):
+            raise ValueError("scene timeline must start at 0 seconds")
+        for previous, current in zip(self.scenes, self.scenes[1:], strict=False):
+            if not isclose(
+                previous.end_seconds,
+                current.start_seconds,
+                rel_tol=0.0,
+                abs_tol=0.001,
+            ):
+                raise ValueError("scene timeline must be continuous without gaps or overlaps")
+        if not isclose(
+            self.scenes[-1].end_seconds,
+            self.total_duration_seconds,
+            rel_tol=0.0,
+            abs_tol=0.001,
+        ):
+            raise ValueError("total duration must match the final scene end time")
         return self
 
 

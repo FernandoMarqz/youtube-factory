@@ -26,18 +26,25 @@ def test_scene_plan_requires_contiguous_sequences() -> None:
                 Scene(
                     sequence=1,
                     narration_segment="Primera escena",
+                    start_seconds=0,
+                    end_seconds=2,
                     visual_description="Una tapa circular",
+                    visual_intent="Introducir el tema",
                     duration_seconds=2,
                     asset_type=AssetType.IMAGE,
                 ),
                 Scene(
                     sequence=3,
                     narration_segment="Tercera escena",
+                    start_seconds=2,
+                    end_seconds=4,
                     visual_description="Una alcantarilla",
+                    visual_intent="Explicar la geometría",
                     duration_seconds=2,
                     asset_type=AssetType.IMAGE,
                 ),
             ],
+            total_duration_seconds=4,
         )
 
 

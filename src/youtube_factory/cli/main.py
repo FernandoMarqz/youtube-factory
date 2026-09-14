@@ -8,6 +8,7 @@ from youtube_factory import __version__
 from youtube_factory.adapters.local import (
     FileSystemArtifactStore,
     LocalResearchProvider,
+    LocalScenePlanner,
     LocalScriptGenerator,
 )
 from youtube_factory.application.exceptions import ContentPipelineError
@@ -21,7 +22,7 @@ def build_parser() -> argparse.ArgumentParser:
     subcommands = parser.add_subparsers(dest="command")
     subcommands.add_parser("status", help="Show bootstrap readiness.")
     create_content = subcommands.add_parser(
-        "create-content", help="Create deterministic research and script artifacts."
+        "create-content", help="Create deterministic research, script and scene artifacts."
     )
     create_content.add_argument("--topic", required=True, help="Spanish topic to create.")
     create_content.add_argument(
@@ -42,6 +43,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         use_case = CreateContentUseCase(
             research_provider=LocalResearchProvider(),
             script_generator=LocalScriptGenerator(),
+            scene_planner=LocalScenePlanner(),
             artifact_store=FileSystemArtifactStore(args.output_dir),
         )
         try:

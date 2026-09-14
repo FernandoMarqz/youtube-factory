@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Protocol
 
-from youtube_factory.domain.models import ContentManifest, ResearchResult, Script, Topic
+from youtube_factory.domain.models import ContentManifest, ResearchResult, ScenePlan, Script, Topic
 
 
 class ProjectArtifactStore(Protocol):
@@ -15,6 +15,7 @@ class ProjectArtifactStore(Protocol):
         topic: Topic,
         research: ResearchResult,
         script: Script,
+        scene_plan: ScenePlan,
         manifest: ContentManifest,
     ) -> Path:
         """Write all artifacts and return the project directory."""
