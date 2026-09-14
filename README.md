@@ -39,3 +39,28 @@ Codex and contributors should read:
 - Docker / Docker Compose
 
 PostgreSQL, n8n, YouTube APIs, and analytics will be added only after the local media pipeline is working.
+
+## Bootstrap commands
+
+Create a Python 3.12 virtual environment and install the development dependencies:
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e ".[dev]"
+```
+
+Confirm the bootstrap CLI is available:
+
+```powershell
+python -m youtube_factory status
+```
+
+Run the quality checks:
+
+```powershell
+python -m pytest
+python -m ruff check .
+python -m ruff format --check .
+python -m mypy
+```
