@@ -12,6 +12,7 @@ from youtube_factory.domain.models.contracts import (
     Script,
     ShortProject,
     Source,
+    TimedScenePlan,
     Topic,
 )
 
@@ -27,5 +28,6 @@ __all__ = [
     "Script",
     "ShortProject",
     "Source",
+    "TimedScenePlan",
     "Topic",
 ]

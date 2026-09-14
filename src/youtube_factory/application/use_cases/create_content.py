@@ -10,17 +10,30 @@ from pydantic import ValidationError
 from youtube_factory.application.exceptions import (
     ArtifactPersistenceError,
     IncompletePipelineError,
+    NarrationGenerationError,
     ProviderContractError,
+    TimingReconciliationError,
 )
-from youtube_factory.domain.models import ContentManifest, ResearchResult, ScenePlan, Script, Topic
+from youtube_factory.application.services import SceneTimingReconciler, validate_wav_narration
+from youtube_factory.domain.models import (
+    ContentManifest,
+    Narration,
+    ResearchResult,
+    ScenePlan,
+    Script,
+    TimedScenePlan,
+    Topic,
+)
 from youtube_factory.ports import (
+    GeneratedNarration,
+    NarrationGenerator,
     ProjectArtifactStore,
     ResearchProvider,
     ScenePlanner,
     ScriptGenerator,
 )
 
-PIPELINE_VERSION = "phase-2-scene-planning-v1"
+PIPELINE_VERSION = "phase-3-narration-timing-v1"
 _PROJECT_NAMESPACE = UUID("ffb67c5b-9e6f-46bd-aace-3f3a783d90b4")
 _DETERMINISTIC_CREATED_AT = datetime(2026, 1, 1)
 
@@ -35,6 +48,8 @@ class CreateContentResult:
     research: ResearchResult
     script: Script
     scene_plan: ScenePlan
+    narration: Narration
+    timed_scene_plan: TimedScenePlan
     manifest: ContentManifest
 
 
@@ -46,20 +61,26 @@ class CreateContentUseCase:
         research_provider: ResearchProvider,
         script_generator: ScriptGenerator,
         scene_planner: ScenePlanner,
+        narration_generator: NarrationGenerator,
+        timing_reconciler: SceneTimingReconciler,
         artifact_store: ProjectArtifactStore,
     ) -> None:
         self._research_provider = research_provider
         self._script_generator = script_generator
         self._scene_planner = scene_planner
+        self._narration_generator = narration_generator
+        self._timing_reconciler = timing_reconciler
         self._artifact_store = artifact_store
 
     def execute(self, topic_title: str) -> CreateContentResult:
-        """Create and persist deterministic research, script and scene-plan artifacts."""
+        """Create and persist local content, narration and media-derived timing artifacts."""
         project_id = uuid5(_PROJECT_NAMESPACE, topic_title.strip())
         topic = Topic(id=project_id, title=topic_title, created_at=_DETERMINISTIC_CREATED_AT)
         research = self._research(topic)
         script = self._generate_script(topic, research)
         scene_plan = self._plan_scenes(script)
+        generated_narration = self._generate_narration(script)
+        timed_scene_plan = self._reconcile_timing(scene_plan, generated_narration.narration)
         manifest = ContentManifest(
             project_id=project_id,
             pipeline_version=PIPELINE_VERSION,
@@ -70,13 +91,27 @@ class CreateContentUseCase:
                 "research.json",
                 "script.json",
                 "scenes.json",
+                "narration.json",
+                "narration.wav",
+                "timed-scenes.json",
                 "manifest.json",
             ),
             research_provider=self._research_provider.identifier,
             script_generator=self._script_generator.identifier,
             scene_planner=self._scene_planner.identifier,
+            narration_generator=self._narration_generator.identifier,
+            timing_reconciliation_strategy=self._timing_reconciler.strategy_identifier,
         )
-        project_directory = self._persist(project_id, topic, research, script, scene_plan, manifest)
+        project_directory = self._persist(
+            project_id,
+            topic,
+            research,
+            script,
+            scene_plan,
+            generated_narration,
+            timed_scene_plan,
+            manifest,
+        )
         return CreateContentResult(
             project_id=project_id,
             project_directory=project_directory,
@@ -84,6 +119,8 @@ class CreateContentUseCase:
             research=research,
             script=script,
             scene_plan=scene_plan,
+            narration=generated_narration.narration,
+            timed_scene_plan=timed_scene_plan,
             manifest=manifest,
         )
 
@@ -114,6 +151,31 @@ class CreateContentUseCase:
             raise ProviderContractError("scene planner returned a plan for a different topic")
         return scene_plan
 
+    def _generate_narration(self, script: Script) -> GeneratedNarration:
+        try:
+            generated = self._narration_generator.generate(script)
+        except ValueError as error:
+            raise NarrationGenerationError("narration generator returned invalid output") from error
+        try:
+            narration = Narration.model_validate(generated.narration)
+        except ValidationError as error:
+            raise ProviderContractError(
+                "narration generator returned an invalid contract"
+            ) from error
+        if narration.topic_id != script.topic_id:
+            raise ProviderContractError("narration generator returned audio for a different topic")
+        validate_wav_narration(narration, generated.audio_bytes)
+        return generated
+
+    def _reconcile_timing(self, scene_plan: ScenePlan, narration: Narration) -> TimedScenePlan:
+        try:
+            timed_scene_plan = self._timing_reconciler.reconcile(scene_plan, narration)
+        except ValueError as error:
+            raise TimingReconciliationError("could not reconcile scene timing") from error
+        if timed_scene_plan.topic_id != scene_plan.topic_id:
+            raise TimingReconciliationError("timed plan belongs to a different topic")
+        return timed_scene_plan
+
     def _persist(
         self,
         project_id: UUID,
@@ -121,11 +183,21 @@ class CreateContentUseCase:
         research: ResearchResult,
         script: Script,
         scene_plan: ScenePlan,
+        generated_narration: GeneratedNarration,
+        timed_scene_plan: TimedScenePlan,
         manifest: ContentManifest,
     ) -> Path:
         try:
             project_directory = self._artifact_store.save(
-                str(project_id), topic, research, script, scene_plan, manifest
+                str(project_id),
+                topic,
+                research,
+                script,
+                scene_plan,
+                generated_narration.narration,
+                generated_narration.audio_bytes,
+                timed_scene_plan,
+                manifest,
             )
         except ArtifactPersistenceError:
             raise

@@ -4,7 +4,15 @@ import subprocess
 import sys
 from pathlib import Path
 
-from youtube_factory.domain.models import ContentManifest, ResearchResult, ScenePlan, Script, Topic
+from youtube_factory.domain.models import (
+    ContentManifest,
+    Narration,
+    ResearchResult,
+    ScenePlan,
+    Script,
+    TimedScenePlan,
+    Topic,
+)
 
 
 def test_module_status_command() -> None:
@@ -45,9 +53,17 @@ def test_create_content_writes_parseable_artifacts(tmp_path: Path) -> None:
     )
     assert Script.model_validate_json((project_directory / "script.json").read_text("utf-8"))
     assert ScenePlan.model_validate_json((project_directory / "scenes.json").read_text("utf-8"))
+    narration = Narration.model_validate_json(
+        (project_directory / "narration.json").read_text("utf-8")
+    )
+    timed_scene_plan = TimedScenePlan.model_validate_json(
+        (project_directory / "timed-scenes.json").read_text("utf-8")
+    )
     assert ContentManifest.model_validate_json(
         (project_directory / "manifest.json").read_text("utf-8")
     )
+    assert (project_directory / "narration.wav").is_file()
+    assert timed_scene_plan.total_duration_seconds == narration.duration_seconds
 
 
 def test_create_content_rejects_unsupported_topic(tmp_path: Path) -> None:

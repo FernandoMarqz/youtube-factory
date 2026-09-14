@@ -87,18 +87,23 @@ RenderResult
 The first executable subset is deliberately limited to:
 
 ```text
-CLI -> CreateContentUseCase -> ResearchProvider -> ScriptGenerator -> ScenePlanner -> ProjectArtifactStore
-                                  |                    |                |                |
-                           ResearchResult             Script         ScenePlan       JSON artifacts
+CLI -> CreateContentUseCase -> ResearchProvider -> ScriptGenerator -> ScenePlanner
+                                  |                    |                |
+                           ResearchResult             Script         ScenePlan
+
+              -> NarrationGenerator -> SceneTimingReconciler -> ProjectArtifactStore
+                     |                        |                    |
+                 Narration + WAV         TimedScenePlan        JSON + WAV artifacts
 ```
 
 `CreateContentUseCase` owns orchestration. The CLI only assembles local adapters and displays
 the result. The domain does not import ports or adapters.
 
 Current ports are `ResearchProvider`, `ScriptGenerator`, `ScenePlanner`, and
-`ProjectArtifactStore`. Their local implementations are `LocalResearchProvider`,
-`LocalScriptGenerator`, `LocalScenePlanner`, and `FileSystemArtifactStore`. The first three are
-deterministic, fixture-like adapters for the reference topic; they make contracts, artifact
+`NarrationGenerator`, and `ProjectArtifactStore`. Their local implementations are
+`LocalResearchProvider`, `LocalScriptGenerator`, `LocalScenePlanner`, `LocalNarrationGenerator`,
+and `FileSystemArtifactStore`. The first four are deterministic, fixture-like adapters for the
+reference topic; they make contracts, artifact
 persistence, and reproducibility testable before they are replaced by AI-backed or source-backed
 implementations.
 
@@ -110,6 +115,9 @@ data/projects/<project-id>/
 ├── research.json
 ├── script.json
 ├── scenes.json
+├── narration.json
+├── narration.wav
+├── timed-scenes.json
 └── manifest.json
 ```
 
@@ -123,6 +131,14 @@ intent, asset type, optional on-screen text and optional transition suggestion. 
 validates that the timeline starts at zero, has no gaps or overlaps, and ends at the total duration.
 Scene planning stays separate from visual generation so future TTS, visual assets, subtitles,
 transitions and FFmpeg rendering can consume `scenes.json` without reinterpreting the script.
+
+After audio exists, its measured duration is authoritative. `NarrationGenerator` returns one
+complete narration track and metadata; Phase 3's local adapter generates a valid deterministic WAV
+with the Python standard library only. `SceneTimingReconciler` transforms the estimated `ScenePlan`
+into `TimedScenePlan` using proportional scaling. It preserves sequence and creative instructions,
+but gives the last scene the exact measured audio end time. Both artifacts are retained: future TTS
+adapters can replace proportional scaling with sentence/word timing while renderers consume only
+`timed-scenes.json`.
 
 ## Domain Model Direction
 

@@ -5,12 +5,22 @@ from uuid import uuid4
 
 from youtube_factory.adapters.local import (
     FileSystemArtifactStore,
+    LocalNarrationGenerator,
     LocalResearchProvider,
     LocalScenePlanner,
     LocalScriptGenerator,
 )
+from youtube_factory.application.services import SceneTimingReconciler
 from youtube_factory.application.use_cases import CreateContentUseCase
-from youtube_factory.domain.models import ContentManifest, ResearchResult, ScenePlan, Script, Topic
+from youtube_factory.domain.models import (
+    ContentManifest,
+    Narration,
+    ResearchResult,
+    ScenePlan,
+    Script,
+    TimedScenePlan,
+    Topic,
+)
 
 
 def test_local_providers_are_deterministic_for_the_reference_topic() -> None:
@@ -32,6 +42,8 @@ def test_file_system_store_writes_parseable_domain_models(tmp_path: Path) -> Non
         LocalResearchProvider(),
         LocalScriptGenerator(),
         LocalScenePlanner(),
+        LocalNarrationGenerator(),
+        SceneTimingReconciler(),
         FileSystemArtifactStore(tmp_path),
     )
     result = use_case.execute("¿Por qué las tapas de alcantarilla son redondas?")
@@ -46,6 +58,12 @@ def test_file_system_store_writes_parseable_domain_models(tmp_path: Path) -> Non
     scene_plan = ScenePlan.model_validate_json(
         (result.project_directory / "scenes.json").read_text("utf-8")
     )
+    narration = Narration.model_validate_json(
+        (result.project_directory / "narration.json").read_text("utf-8")
+    )
+    timed_scene_plan = TimedScenePlan.model_validate_json(
+        (result.project_directory / "timed-scenes.json").read_text("utf-8")
+    )
     manifest = ContentManifest.model_validate_json(
         (result.project_directory / "manifest.json").read_text("utf-8")
     )
@@ -54,6 +72,9 @@ def test_file_system_store_writes_parseable_domain_models(tmp_path: Path) -> Non
     assert research == result.research
     assert script == result.script
     assert scene_plan == result.scene_plan
+    assert narration == result.narration
+    assert timed_scene_plan == result.timed_scene_plan
+    assert (result.project_directory / "narration.wav").is_file()
     assert manifest == result.manifest
 
     first_script_json = (result.project_directory / "script.json").read_text("utf-8")

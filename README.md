@@ -73,6 +73,9 @@ data/projects/<project-id>/
 ├── research.json
 ├── script.json
 ├── scenes.json
+├── narration.json
+├── narration.wav
+├── timed-scenes.json
 └── manifest.json
 ```
 
@@ -86,6 +89,18 @@ narration, media generation, renderer, database or publishing integration exists
 continuous start/end/duration estimates, a separate visual instruction and purpose, an asset type,
 and optional on-screen text or transition suggestion. It is planning data only: future TTS, visual
 assets, subtitles, transitions and rendering will consume it, but this command creates no media.
+
+## Phase 3: narration and timing
+
+The local pipeline now creates one deterministic, valid mono PCM/WAV narration track at 16 kHz.
+It is intentionally silent and is not synthetic speech. Its purpose is to validate the
+provider-independent `NarrationGenerator` port, binary-artifact persistence and audio inspection
+without an external TTS provider.
+
+`scenes.json` remains the creative, estimated storyboard. `timed-scenes.json` is a separate
+render-ready `TimedScenePlan`: its timeline is scaled proportionally to the measured WAV duration,
+starts at zero and ends exactly at that duration. This is an initial strategy; real TTS providers
+will later supply sentence or word timestamps for more precise reconciliation.
 
 Run the quality checks:
 

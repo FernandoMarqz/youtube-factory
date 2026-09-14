@@ -80,6 +80,8 @@ class ContentManifest(DomainModel):
     research_provider: NonEmptyText
     script_generator: NonEmptyText
     scene_planner: NonEmptyText | None = None
+    narration_generator: NonEmptyText | None = None
+    timing_reconciliation_strategy: NonEmptyText | None = None
 
 
 class Scene(DomainModel):
@@ -119,28 +121,33 @@ class ScenePlan(DomainModel):
 
     @model_validator(mode="after")
     def has_contiguous_scene_sequences(self) -> "ScenePlan":
-        sequences = [scene.sequence for scene in self.scenes]
-        expected = list(range(1, len(self.scenes) + 1))
-        if sequences != expected:
-            raise ValueError("scene sequences must be contiguous and start at 1")
-        if not isclose(self.scenes[0].start_seconds, 0.0, rel_tol=0.0, abs_tol=0.001):
-            raise ValueError("scene timeline must start at 0 seconds")
-        for previous, current in zip(self.scenes, self.scenes[1:], strict=False):
-            if not isclose(
-                previous.end_seconds,
-                current.start_seconds,
-                rel_tol=0.0,
-                abs_tol=0.001,
-            ):
-                raise ValueError("scene timeline must be continuous without gaps or overlaps")
+        _validate_timeline(self.scenes, self.total_duration_seconds)
+        return self
+
+
+def _validate_timeline(scenes: list[Scene], total_duration_seconds: float) -> None:
+    """Validate sequence order, continuity and total duration shared by both timeline contracts."""
+    sequences = [scene.sequence for scene in scenes]
+    expected = list(range(1, len(scenes) + 1))
+    if sequences != expected:
+        raise ValueError("scene sequences must be contiguous and start at 1")
+    if not isclose(scenes[0].start_seconds, 0.0, rel_tol=0.0, abs_tol=0.001):
+        raise ValueError("scene timeline must start at 0 seconds")
+    for previous, current in zip(scenes, scenes[1:], strict=False):
         if not isclose(
-            self.scenes[-1].end_seconds,
-            self.total_duration_seconds,
+            previous.end_seconds,
+            current.start_seconds,
             rel_tol=0.0,
             abs_tol=0.001,
         ):
-            raise ValueError("total duration must match the final scene end time")
-        return self
+            raise ValueError("scene timeline must be continuous without gaps or overlaps")
+    if not isclose(
+        scenes[-1].end_seconds,
+        total_duration_seconds,
+        rel_tol=0.0,
+        abs_tol=0.001,
+    ):
+        raise ValueError("total duration must match the final scene end time")
 
 
 class Narration(DomainModel):
@@ -151,6 +158,33 @@ class Narration(DomainModel):
     duration_seconds: PositiveSeconds
     provider: NonEmptyText
     voice: NonEmptyText
+    audio_format: Annotated[str, Field(pattern=r"^[a-z0-9]+$")] = "wav"
+    sample_rate_hz: Annotated[int, Field(gt=0)]
+    narration_text: NonEmptyText
+    script_sha256: Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
+
+
+class TimedScenePlan(DomainModel):
+    """Render-ready timeline reconciled against an authoritative narration duration."""
+
+    topic_id: UUID
+    source_total_duration_seconds: PositiveSeconds
+    narration_duration_seconds: PositiveSeconds
+    total_duration_seconds: PositiveSeconds
+    reconciliation_strategy: NonEmptyText
+    scenes: list[Scene] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def has_narration_aligned_timeline(self) -> "TimedScenePlan":
+        _validate_timeline(self.scenes, self.total_duration_seconds)
+        if not isclose(
+            self.total_duration_seconds,
+            self.narration_duration_seconds,
+            rel_tol=0.0,
+            abs_tol=0.001,
+        ):
+            raise ValueError("timed plan duration must match narration duration")
+        return self
 
 
 class Asset(DomainModel):

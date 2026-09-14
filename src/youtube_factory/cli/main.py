@@ -7,11 +7,13 @@ from pathlib import Path
 from youtube_factory import __version__
 from youtube_factory.adapters.local import (
     FileSystemArtifactStore,
+    LocalNarrationGenerator,
     LocalResearchProvider,
     LocalScenePlanner,
     LocalScriptGenerator,
 )
 from youtube_factory.application.exceptions import ContentPipelineError
+from youtube_factory.application.services import SceneTimingReconciler
 from youtube_factory.application.use_cases import CreateContentUseCase
 
 
@@ -44,6 +46,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             research_provider=LocalResearchProvider(),
             script_generator=LocalScriptGenerator(),
             scene_planner=LocalScenePlanner(),
+            narration_generator=LocalNarrationGenerator(),
+            timing_reconciler=SceneTimingReconciler(),
             artifact_store=FileSystemArtifactStore(args.output_dir),
         )
         try:
