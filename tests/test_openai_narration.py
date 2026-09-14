@@ -1,5 +1,6 @@
 """Offline tests for the OpenAI narration adapter and configuration."""
 
+from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -12,7 +13,7 @@ from youtube_factory.adapters.local import (
 )
 from youtube_factory.adapters.openai import OpenAINarrationGenerator, OpenAITTSConfig
 from youtube_factory.application.exceptions import NarrationGenerationError
-from youtube_factory.cli.main import build_narration_generator
+from youtube_factory.cli.main import build_narration_generator, load_local_environment
 from youtube_factory.domain.models import Script, Topic
 
 
@@ -76,6 +77,50 @@ def test_cli_wiring_selects_openai_adapter(monkeypatch: pytest.MonkeyPatch) -> N
     generator = build_narration_generator("openai")
 
     assert isinstance(generator, OpenAINarrationGenerator)
+
+
+def test_local_dotenv_values_are_loaded_without_overwriting_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dotenv_path = tmp_path / ".env"
+    dotenv_path.write_text(
+        "OPENAI_API_KEY=dotenv-key\nOPENAI_TTS_VOICE=dotenv-voice\n", encoding="utf-8"
+    )
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_TTS_VOICE", raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    assert load_local_environment()
+    config = OpenAITTSConfig.from_environment()
+
+    assert config.api_key == "dotenv-key"
+    assert config.voice == "dotenv-voice"
+
+
+def test_existing_environment_values_override_local_dotenv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dotenv_path = tmp_path / ".env"
+    dotenv_path.write_text(
+        "OPENAI_API_KEY=dotenv-key\nOPENAI_TTS_VOICE=dotenv-voice\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("OPENAI_API_KEY", "process-key")
+    monkeypatch.setenv("OPENAI_TTS_VOICE", "process-voice")
+
+    assert load_local_environment(dotenv_path)
+
+    config = OpenAITTSConfig.from_environment()
+
+    assert config.api_key == "process-key"
+    assert config.voice == "process-voice"
+
+
+def test_local_provider_does_not_load_or_require_openai_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    assert isinstance(build_narration_generator("local"), LocalNarrationGenerator)
 
 
 def test_openai_adapter_sends_configured_request_and_measures_wav() -> None:

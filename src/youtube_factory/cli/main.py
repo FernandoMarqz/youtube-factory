@@ -4,6 +4,8 @@ import argparse
 from collections.abc import Sequence
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 from youtube_factory import __version__
 from youtube_factory.adapters.local import (
     FileSystemArtifactStore,
@@ -50,6 +52,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.command == "status":
         print("youtube-factory bootstrap ready")
     elif args.command == "create-content":
+        load_local_environment()
         try:
             use_case = CreateContentUseCase(
                 research_provider=LocalResearchProvider(),
@@ -72,3 +75,9 @@ def build_narration_generator(provider: str) -> NarrationGenerator:
     if provider == "openai":
         return OpenAINarrationGenerator(OpenAITTSConfig.from_environment())
     raise ValueError(f"unsupported narration provider: {provider}")
+
+
+def load_local_environment(dotenv_path: Path | None = None) -> bool:
+    """Load only the working directory's optional .env without replacing real environment values."""
+    local_dotenv_path = dotenv_path if dotenv_path is not None else Path.cwd() / ".env"
+    return load_dotenv(dotenv_path=local_dotenv_path, override=False)

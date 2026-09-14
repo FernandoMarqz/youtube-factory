@@ -114,8 +114,9 @@ python -m youtube_factory create-content `
 ```
 
 An intentional OpenAI smoke test can generate real Spanish speech through the same
-`NarrationGenerator` port. Set `OPENAI_API_KEY` in the shell that invokes the command (and never
-commit it); `.env.example` documents the available variables. Then run:
+`NarrationGenerator` port. Copy `.env.example` to an ignored `.env`, set `OPENAI_API_KEY`, and
+never commit it. `create-content` loads only `.env` from the working directory; real process
+environment variables take precedence. It never loads `.env.example`. Then run:
 
 ```powershell
 python -m youtube_factory create-content `
