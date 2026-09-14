@@ -2,6 +2,7 @@
 
 from youtube_factory.domain.models import (
     Asset,
+    ContentManifest,
     Narration,
     RenderJob,
     RenderResult,
@@ -16,6 +17,7 @@ from youtube_factory.domain.models import (
 
 __all__ = [
     "Asset",
+    "ContentManifest",
     "Narration",
     "RenderJob",
     "RenderResult",

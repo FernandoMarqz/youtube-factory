@@ -56,6 +56,31 @@ Confirm the bootstrap CLI is available:
 python -m youtube_factory status
 ```
 
+## Phase 1: local content engine
+
+Create deterministic research and a Short script for the current reference topic:
+
+```powershell
+python -m youtube_factory create-content `
+  --topic "¿Por qué las tapas de alcantarilla son redondas?"
+```
+
+The command prints its project directory and writes these inspectable artifacts:
+
+```text
+data/projects/<project-id>/
+├── topic.json
+├── research.json
+├── script.json
+└── manifest.json
+```
+
+Use `--output-dir <path>` to choose another root. The project identifier and JSON content are
+stable for the same input. The local research and script adapters are intentional deterministic
+fixtures: they validate the pipeline offline before they are replaced by AI-backed research and
+script adapters. They support only the reference topic. No web search, HTTP API, LLM, scene
+planner, narration, media generation, renderer, database or publishing integration exists yet.
+
 Run the quality checks:
 
 ```powershell

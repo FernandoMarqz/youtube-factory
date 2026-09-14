@@ -23,6 +23,8 @@ Create a maintainable Python repository ready for iterative development.
 
 The project installs locally, tests run, linting succeeds, and a basic CLI command executes.
 
+Status: complete.
+
 ---
 
 ## Phase 1 — Local Vertical Slice
@@ -51,6 +53,21 @@ Generate one complete Short from one manually supplied topic.
 ### Definition of Done
 
 A single CLI command produces all intermediate artifacts plus a valid vertical MP4.
+
+### Current Phase 1 Scope
+
+The content-engine foundation is complete for the local deterministic subset:
+
+```text
+Topic -> ResearchResult -> Script
+```
+
+`create-content` writes `topic.json`, `research.json`, `script.json`, and `manifest.json` under
+`data/projects/<project-id>/`. The current providers support only the reference manhole-cover
+topic and exist to validate ports, contracts, orchestration and reproducible persistence before
+external AI or research integrations. Scene planning, narration, assets, subtitles and rendering
+remain future work; therefore this subset does not yet satisfy the full Phase 1 vertical-MP4
+definition of done.
 
 ---
 

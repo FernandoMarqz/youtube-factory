@@ -82,6 +82,39 @@ RenderShortUseCase
 RenderResult
 ```
 
+## Phase 1 Content Engine Foundation
+
+The first executable subset is deliberately limited to:
+
+```text
+CLI -> CreateContentUseCase -> ResearchProvider -> ScriptGenerator -> ProjectArtifactStore
+                                  |                    |                 |
+                           ResearchResult             Script       JSON artifacts
+```
+
+`CreateContentUseCase` owns orchestration. The CLI only assembles local adapters and displays
+the result. The domain does not import ports or adapters.
+
+Current ports are `ResearchProvider`, `ScriptGenerator`, and `ProjectArtifactStore`. Their
+Phase 1 implementations are `LocalResearchProvider`, `LocalScriptGenerator`, and
+`FileSystemArtifactStore`. The first two are deterministic, fixture-like adapters for the
+reference topic; they make contracts, artifact persistence, and reproducibility testable before
+they are replaced by AI-backed or source-backed implementations.
+
+Running the local slice creates:
+
+```text
+data/projects/<project-id>/
+├── topic.json
+├── research.json
+├── script.json
+└── manifest.json
+```
+
+The artifact store serializes Pydantic models as UTF-8, indented and key-sorted JSON. The
+manifest contains the stable pipeline version, provider identifiers, topic and generated files.
+No network request is performed in this phase.
+
 ## Domain Model Direction
 
 ### Topic

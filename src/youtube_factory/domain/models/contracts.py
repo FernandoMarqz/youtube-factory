@@ -68,6 +68,18 @@ class Script(DomainModel):
     claims: list[NonEmptyText] = Field(min_length=1)
 
 
+class ContentManifest(DomainModel):
+    """Stable inventory of artifacts produced by the content foundation pipeline."""
+
+    project_id: UUID
+    pipeline_version: NonEmptyText
+    topic: NonEmptyText
+    topic_id: UUID
+    artifacts: tuple[NonEmptyText, ...] = Field(min_length=1)
+    research_provider: NonEmptyText
+    script_generator: NonEmptyText
+
+
 class Scene(DomainModel):
     """One ordered, timed visual segment."""
 
