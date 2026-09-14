@@ -162,6 +162,8 @@ class Narration(DomainModel):
     sample_rate_hz: Annotated[int, Field(gt=0)]
     narration_text: NonEmptyText
     script_sha256: Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
+    model: NonEmptyText | None = None
+    input_character_count: Annotated[int, Field(gt=0)] | None = None
 
 
 class TimedScenePlan(DomainModel):

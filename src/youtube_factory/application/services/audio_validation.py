@@ -10,11 +10,11 @@ from youtube_factory.domain.models import Narration
 def validate_wav_narration(narration: Narration, audio_bytes: bytes) -> None:
     """Confirm that WAV bytes are readable and match the reported narration duration."""
     if narration.audio_format != "wav":
-        raise InvalidAudioArtifactError("local narration must use WAV audio")
+        raise InvalidAudioArtifactError("narration must use WAV audio")
     try:
         with wave.open(BytesIO(audio_bytes), "rb") as wav_file:
             if wav_file.getnchannels() != 1 or wav_file.getsampwidth() != 2:
-                raise InvalidAudioArtifactError("local narration WAV must be mono 16-bit PCM")
+                raise InvalidAudioArtifactError("narration WAV must be mono 16-bit PCM")
             if wav_file.getframerate() != narration.sample_rate_hz:
                 raise InvalidAudioArtifactError("WAV sample rate does not match narration metadata")
             actual_duration = wav_file.getnframes() / wav_file.getframerate()

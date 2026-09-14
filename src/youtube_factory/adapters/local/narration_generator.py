@@ -43,5 +43,6 @@ class LocalNarrationGenerator:
             sample_rate_hz=_SAMPLE_RATE_HZ,
             narration_text=script.full_narration,
             script_sha256=sha256(script.full_narration.encode("utf-8")).hexdigest(),
+            input_character_count=len(script.full_narration),
         )
         return GeneratedNarration(narration=narration, audio_bytes=buffer.getvalue())

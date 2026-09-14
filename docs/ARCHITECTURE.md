@@ -140,6 +140,20 @@ but gives the last scene the exact measured audio end time. Both artifacts are r
 adapters can replace proportional scaling with sentence/word timing while renderers consume only
 `timed-scenes.json`.
 
+## OpenAI narration adapter
+
+`NarrationGenerator` remains a provider-independent port. The composition root in the CLI chooses
+`LocalNarrationGenerator` by default or `OpenAINarrationGenerator` when
+`--narration-provider openai` is explicitly supplied. The latter reads its API key, model, voice
+and delivery instructions from environment configuration and uses the official OpenAI Python SDK
+to request WAV speech. SDK responses and credentials do not cross into the domain: the adapter
+returns the same `GeneratedNarration` value used by the local adapter.
+
+The persisted `Narration` records generic provider, model, voice and input-character metadata for
+reproducibility and future cost telemetry. It contains neither API credentials nor raw SDK/API
+responses. The existing WAV validator and `SceneTimingReconciler` remain unchanged consumers of
+the provider-neutral result.
+
 ## Domain Model Direction
 
 ### Topic

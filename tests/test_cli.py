@@ -1,5 +1,6 @@
 """Tests for the bootstrap CLI."""
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -38,6 +39,8 @@ def test_create_content_writes_parseable_artifacts(tmp_path: Path) -> None:
             "¿Por qué las tapas de alcantarilla son redondas?",
             "--output-dir",
             str(tmp_path),
+            "--narration-provider",
+            "local",
         ],
         check=False,
         capture_output=True,
@@ -64,6 +67,31 @@ def test_create_content_writes_parseable_artifacts(tmp_path: Path) -> None:
     )
     assert (project_directory / "narration.wav").is_file()
     assert timed_scene_plan.total_duration_seconds == narration.duration_seconds
+
+
+def test_openai_provider_fails_cleanly_without_api_key(tmp_path: Path) -> None:
+    environment = {**os.environ, "OPENAI_API_KEY": ""}
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "youtube_factory",
+            "create-content",
+            "--topic",
+            "¿Por qué las tapas de alcantarilla son redondas?",
+            "--narration-provider",
+            "openai",
+            "--output-dir",
+            str(tmp_path),
+        ],
+        check=False,
+        capture_output=True,
+        env=environment,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "OPENAI_API_KEY is required" in result.stderr
 
 
 def test_create_content_rejects_unsupported_topic(tmp_path: Path) -> None:

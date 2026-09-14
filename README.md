@@ -102,6 +102,39 @@ render-ready `TimedScenePlan`: its timeline is scaled proportionally to the meas
 starts at zero and ends exactly at that duration. This is an initial strategy; real TTS providers
 will later supply sentence or word timestamps for more precise reconciliation.
 
+## Narration providers
+
+Local narration remains the default, so development and tests are deterministic, offline and
+zero-cost:
+
+```powershell
+python -m youtube_factory create-content `
+  --topic "¿Por qué las tapas de alcantarilla son redondas?" `
+  --narration-provider local
+```
+
+An intentional OpenAI smoke test can generate real Spanish speech through the same
+`NarrationGenerator` port. Set `OPENAI_API_KEY` in the shell that invokes the command (and never
+commit it); `.env.example` documents the available variables. Then run:
+
+```powershell
+python -m youtube_factory create-content `
+  --topic "¿Por qué las tapas de alcantarilla son redondas?" `
+  --narration-provider openai
+```
+
+`OPENAI_TTS_MODEL` defaults to `gpt-4o-mini-tts`, `OPENAI_TTS_VOICE` defaults to `cedar`, and
+`OPENAI_TTS_INSTRUCTIONS` controls the Spanish delivery style. The OpenAI adapter requests WAV,
+measures the returned audio, persists provider-neutral metadata in `narration.json`, and keeps
+`scenes.json` separate from the audio-authoritative `timed-scenes.json`. No API call is made by
+the default command or the automated test suite.
+
+In PowerShell, this prompts for the key instead of placing it in shell history:
+
+```powershell
+$env:OPENAI_API_KEY = [System.Net.NetworkCredential]::new("", (Read-Host -AsSecureString "OpenAI API key")).Password
+```
+
 Run the quality checks:
 
 ```powershell
