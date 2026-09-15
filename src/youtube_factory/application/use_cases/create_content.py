@@ -2,38 +2,54 @@
 
 from dataclasses import dataclass
 from datetime import datetime
+from hashlib import sha256
 from pathlib import Path
 from uuid import UUID, uuid5
 
 from pydantic import ValidationError
 
+from youtube_factory.application.config import ChannelConfig
 from youtube_factory.application.exceptions import (
     ArtifactPersistenceError,
+    ContentPipelineError,
     IncompletePipelineError,
     NarrationGenerationError,
     ProviderContractError,
     TimingReconciliationError,
+    VisualAssetGenerationError,
+    VisualPromptGenerationError,
 )
-from youtube_factory.application.services import SceneTimingReconciler, validate_wav_narration
+from youtube_factory.application.services import (
+    SceneTimingReconciler,
+    VisualPromptBuilder,
+    validate_png,
+    validate_wav_narration,
+)
 from youtube_factory.domain.models import (
     ContentManifest,
     Narration,
+    NarrationGeneratorMetadata,
     ResearchResult,
     ScenePlan,
     Script,
     TimedScenePlan,
     Topic,
+    VisualAssetGeneratorMetadata,
+    VisualAssetManifest,
+    VisualPromptPlan,
 )
 from youtube_factory.ports import (
     GeneratedNarration,
+    GeneratedVisualAsset,
     NarrationGenerator,
     ProjectArtifactStore,
     ResearchProvider,
     ScenePlanner,
     ScriptGenerator,
+    VisualAssetProvider,
 )
 
-PIPELINE_VERSION = "phase-3-narration-timing-v1"
+PIPELINE_VERSION = "content-pipeline-v1"
 _PROJECT_NAMESPACE = UUID("ffb67c5b-9e6f-46bd-aace-3f3a783d90b4")
 _DETERMINISTIC_CREATED_AT = datetime(2026, 1, 1)
 
@@ -50,6 +66,8 @@ class CreateContentResult:
     scene_plan: ScenePlan
     narration: Narration
     timed_scene_plan: TimedScenePlan
+    visual_prompt_plan: VisualPromptPlan
+    visual_asset_manifest: VisualAssetManifest
     manifest: ContentManifest
 
 
@@ -64,6 +82,9 @@ class CreateContentUseCase:
         narration_generator: NarrationGenerator,
         timing_reconciler: SceneTimingReconciler,
         artifact_store: ProjectArtifactStore,
+        channel_config: ChannelConfig,
+        visual_prompt_builder: VisualPromptBuilder,
+        visual_asset_provider: VisualAssetProvider,
     ) -> None:
         self._research_provider = research_provider
         self._script_generator = script_generator
@@ -71,6 +92,9 @@ class CreateContentUseCase:
         self._narration_generator = narration_generator
         self._timing_reconciler = timing_reconciler
         self._artifact_store = artifact_store
+        self._channel_config = channel_config
+        self._visual_prompt_builder = visual_prompt_builder
+        self._visual_asset_provider = visual_asset_provider
 
     def execute(self, topic_title: str) -> CreateContentResult:
         """Create and persist local content, narration and media-derived timing artifacts."""
@@ -81,9 +105,20 @@ class CreateContentUseCase:
         scene_plan = self._plan_scenes(script)
         generated_narration = self._generate_narration(script)
         timed_scene_plan = self._reconcile_timing(scene_plan, generated_narration.narration)
+        visual_prompt_plan = self._build_visual_prompts(timed_scene_plan)
+        generated_visual_assets = self._generate_visual_assets(visual_prompt_plan)
+        visual_asset_manifest = VisualAssetManifest(
+            topic_id=topic.id,
+            channel_id=self._channel_config.id,
+            provider=self._visual_asset_provider.identifier,
+            model=self._visual_asset_provider.model,
+            assets=[generated.asset for generated in generated_visual_assets],
+        )
+        visual_paths = tuple(asset.file_path for asset in visual_asset_manifest.assets)
         manifest = ContentManifest(
             project_id=project_id,
             pipeline_version=PIPELINE_VERSION,
+            channel_id=self._channel_config.id,
             topic=topic.title,
             topic_id=topic.id,
             artifacts=(
@@ -94,13 +129,26 @@ class CreateContentUseCase:
                 "narration.json",
                 "narration.wav",
                 "timed-scenes.json",
+                "visual-prompts.json",
+                "visual-assets.json",
+                *visual_paths,
                 "manifest.json",
             ),
             research_provider=self._research_provider.identifier,
             script_generator=self._script_generator.identifier,
             scene_planner=self._scene_planner.identifier,
-            narration_generator=self._narration_generator.identifier,
+            narration_generator=NarrationGeneratorMetadata(
+                provider=generated_narration.narration.provider,
+                model=generated_narration.narration.model,
+                voice=generated_narration.narration.voice,
+                duration_seconds=generated_narration.narration.duration_seconds,
+            ),
             timing_reconciliation_strategy=self._timing_reconciler.strategy_identifier,
+            visual_asset_generator=VisualAssetGeneratorMetadata(
+                provider=visual_asset_manifest.provider,
+                model=visual_asset_manifest.model,
+                asset_count=len(visual_asset_manifest.assets),
+            ),
         )
         project_directory = self._persist(
             project_id,
@@ -110,6 +158,9 @@ class CreateContentUseCase:
             scene_plan,
             generated_narration,
             timed_scene_plan,
+            visual_prompt_plan,
+            visual_asset_manifest,
+            generated_visual_assets,
             manifest,
         )
         return CreateContentResult(
@@ -121,6 +172,8 @@ class CreateContentUseCase:
             scene_plan=scene_plan,
             narration=generated_narration.narration,
             timed_scene_plan=timed_scene_plan,
+            visual_prompt_plan=visual_prompt_plan,
+            visual_asset_manifest=visual_asset_manifest,
             manifest=manifest,
         )
 
@@ -176,6 +229,51 @@ class CreateContentUseCase:
             raise TimingReconciliationError("timed plan belongs to a different topic")
         return timed_scene_plan
 
+    def _build_visual_prompts(self, timed_scene_plan: TimedScenePlan) -> VisualPromptPlan:
+        try:
+            plan = self._visual_prompt_builder.build(timed_scene_plan, self._channel_config)
+        except ContentPipelineError:
+            raise
+        except (ValueError, ValidationError) as error:
+            raise VisualPromptGenerationError("could not build visual prompts") from error
+        if plan.topic_id != timed_scene_plan.topic_id:
+            raise VisualPromptGenerationError("visual prompt plan belongs to a different topic")
+        return plan
+
+    def _generate_visual_assets(
+        self, visual_prompt_plan: VisualPromptPlan
+    ) -> tuple[GeneratedVisualAsset, ...]:
+        generated_assets: list[GeneratedVisualAsset] = []
+        for prompt in visual_prompt_plan.prompts:
+            try:
+                generated = self._visual_asset_provider.generate(prompt)
+                width, height = validate_png(generated.image_bytes)
+            except ContentPipelineError:
+                raise
+            except Exception as error:
+                raise VisualAssetGenerationError(
+                    f"could not generate visual asset for scene {prompt.scene_sequence}"
+                ) from error
+            asset = generated.asset
+            expected_prompt_hash = sha256(prompt.prompt.encode("utf-8")).hexdigest()
+            if (
+                asset.scene_sequence != prompt.scene_sequence
+                or asset.provider != self._visual_asset_provider.identifier
+                or asset.width != width
+                or asset.height != height
+                or asset.prompt_sha256 != expected_prompt_hash
+            ):
+                raise VisualAssetGenerationError(
+                    "visual provider returned inconsistent metadata for scene "
+                    f"{prompt.scene_sequence}"
+                )
+            generated_assets.append(generated)
+        if len(generated_assets) != len(visual_prompt_plan.prompts):
+            raise VisualAssetGenerationError(
+                "visual provider did not generate every required scene"
+            )
+        return tuple(generated_assets)
+
     def _persist(
         self,
         project_id: UUID,
@@ -185,6 +283,9 @@ class CreateContentUseCase:
         scene_plan: ScenePlan,
         generated_narration: GeneratedNarration,
         timed_scene_plan: TimedScenePlan,
+        visual_prompt_plan: VisualPromptPlan,
+        visual_asset_manifest: VisualAssetManifest,
+        generated_visual_assets: tuple[GeneratedVisualAsset, ...],
         manifest: ContentManifest,
     ) -> Path:
         try:
@@ -197,6 +298,9 @@ class CreateContentUseCase:
                 generated_narration.narration,
                 generated_narration.audio_bytes,
                 timed_scene_plan,
+                visual_prompt_plan,
+                visual_asset_manifest,
+                generated_visual_assets,
                 manifest,
             )
         except ArtifactPersistenceError:

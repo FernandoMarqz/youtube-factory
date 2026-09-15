@@ -5,12 +5,15 @@ from youtube_factory.ports.narration import GeneratedNarration, NarrationGenerat
 from youtube_factory.ports.research import ResearchProvider
 from youtube_factory.ports.scene_planner import ScenePlanner
 from youtube_factory.ports.script_generator import ScriptGenerator
+from youtube_factory.ports.visuals import GeneratedVisualAsset, VisualAssetProvider
 
 __all__ = [
     "GeneratedNarration",
+    "GeneratedVisualAsset",
     "NarrationGenerator",
     "ProjectArtifactStore",
     "ResearchProvider",
     "ScenePlanner",
     "ScriptGenerator",
+    "VisualAssetProvider",
 ]

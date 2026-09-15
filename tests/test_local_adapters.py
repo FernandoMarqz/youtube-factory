@@ -6,11 +6,16 @@ from uuid import uuid4
 from youtube_factory.adapters.local import (
     FileSystemArtifactStore,
     LocalNarrationGenerator,
+    LocalPlaceholderVisualAssetProvider,
     LocalResearchProvider,
     LocalScenePlanner,
     LocalScriptGenerator,
 )
-from youtube_factory.application.services import SceneTimingReconciler
+from youtube_factory.application.config import load_channel_config
+from youtube_factory.application.services import (
+    DeterministicVisualPromptBuilder,
+    SceneTimingReconciler,
+)
 from youtube_factory.application.use_cases import CreateContentUseCase
 from youtube_factory.domain.models import (
     ContentManifest,
@@ -20,6 +25,8 @@ from youtube_factory.domain.models import (
     Script,
     TimedScenePlan,
     Topic,
+    VisualAssetManifest,
+    VisualPromptPlan,
 )
 
 
@@ -45,6 +52,9 @@ def test_file_system_store_writes_parseable_domain_models(tmp_path: Path) -> Non
         LocalNarrationGenerator(),
         SceneTimingReconciler(),
         FileSystemArtifactStore(tmp_path),
+        load_channel_config("engineering-es"),
+        DeterministicVisualPromptBuilder(),
+        LocalPlaceholderVisualAssetProvider(),
     )
     result = use_case.execute("¿Por qué las tapas de alcantarilla son redondas?")
 
@@ -67,6 +77,12 @@ def test_file_system_store_writes_parseable_domain_models(tmp_path: Path) -> Non
     manifest = ContentManifest.model_validate_json(
         (result.project_directory / "manifest.json").read_text("utf-8")
     )
+    visual_prompts = VisualPromptPlan.model_validate_json(
+        (result.project_directory / "visual-prompts.json").read_text("utf-8")
+    )
+    visual_assets = VisualAssetManifest.model_validate_json(
+        (result.project_directory / "visual-assets.json").read_text("utf-8")
+    )
 
     assert topic == result.topic
     assert research == result.research
@@ -76,6 +92,11 @@ def test_file_system_store_writes_parseable_domain_models(tmp_path: Path) -> Non
     assert timed_scene_plan == result.timed_scene_plan
     assert (result.project_directory / "narration.wav").is_file()
     assert manifest == result.manifest
+    assert visual_prompts == result.visual_prompt_plan
+    assert visual_assets == result.visual_asset_manifest
+    assert all(
+        (result.project_directory / asset.file_path).is_file() for asset in visual_assets.assets
+    )
 
     first_script_json = (result.project_directory / "script.json").read_text("utf-8")
     repeated_result = use_case.execute("¿Por qué las tapas de alcantarilla son redondas?")

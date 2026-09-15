@@ -11,7 +11,10 @@ from youtube_factory.domain.models import (
     Script,
     TimedScenePlan,
     Topic,
+    VisualAssetManifest,
+    VisualPromptPlan,
 )
+from youtube_factory.ports.visuals import GeneratedVisualAsset
 
 
 class ProjectArtifactStore(Protocol):
@@ -27,6 +30,9 @@ class ProjectArtifactStore(Protocol):
         narration: Narration,
         narration_audio: bytes,
         timed_scene_plan: TimedScenePlan,
+        visual_prompt_plan: VisualPromptPlan,
+        visual_asset_manifest: VisualAssetManifest,
+        generated_visual_assets: tuple[GeneratedVisualAsset, ...],
         manifest: ContentManifest,
     ) -> Path:
         """Write all artifacts and return the project directory."""

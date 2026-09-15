@@ -5,6 +5,7 @@ from youtube_factory.adapters.local.narration_generator import LocalNarrationGen
 from youtube_factory.adapters.local.research import LocalResearchProvider
 from youtube_factory.adapters.local.scene_planner import LocalScenePlanner
 from youtube_factory.adapters.local.script_generator import LocalScriptGenerator
+from youtube_factory.adapters.local.visual_assets import LocalPlaceholderVisualAssetProvider
 
 __all__ = [
     "FileSystemArtifactStore",
@@ -12,4 +13,5 @@ __all__ = [
     "LocalResearchProvider",
     "LocalScenePlanner",
     "LocalScriptGenerator",
+    "LocalPlaceholderVisualAssetProvider",
 ]

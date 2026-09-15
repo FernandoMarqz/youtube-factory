@@ -15,7 +15,10 @@ from youtube_factory.domain.models import (
     Script,
     TimedScenePlan,
     Topic,
+    VisualAssetManifest,
+    VisualPromptPlan,
 )
+from youtube_factory.ports import GeneratedVisualAsset
 
 
 class FileSystemArtifactStore:
@@ -34,6 +37,9 @@ class FileSystemArtifactStore:
         narration: Narration,
         narration_audio: bytes,
         timed_scene_plan: TimedScenePlan,
+        visual_prompt_plan: VisualPromptPlan,
+        visual_asset_manifest: VisualAssetManifest,
+        generated_visual_assets: tuple[GeneratedVisualAsset, ...],
         manifest: ContentManifest,
     ) -> Path:
         """Persist all Phase 1 artifacts and return their project directory."""
@@ -47,6 +53,12 @@ class FileSystemArtifactStore:
             self._write_model(project_directory / "narration.json", narration)
             (project_directory / narration.file_path).write_bytes(narration_audio)
             self._write_model(project_directory / "timed-scenes.json", timed_scene_plan)
+            self._write_model(project_directory / "visual-prompts.json", visual_prompt_plan)
+            for generated in generated_visual_assets:
+                asset_path = project_directory / generated.asset.file_path
+                asset_path.parent.mkdir(parents=True, exist_ok=True)
+                asset_path.write_bytes(generated.image_bytes)
+            self._write_model(project_directory / "visual-assets.json", visual_asset_manifest)
             self._write_model(project_directory / "manifest.json", manifest)
         except OSError as error:
             raise ArtifactPersistenceError("could not write project artifacts") from error

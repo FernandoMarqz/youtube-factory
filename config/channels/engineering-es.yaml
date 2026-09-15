@@ -1,0 +1,31 @@
+id: engineering-es
+language: es-ES
+
+content:
+  niche: engineering_curiosities
+  target_duration_seconds: 35
+  min_duration_seconds: 25
+  max_duration_seconds: 45
+
+narration:
+  provider: openai
+  model: gpt-4o-mini-tts
+  voice: cedar
+  instructions: >
+    Habla en español de España con una voz natural, clara y dinámica.
+    Empieza el hook con curiosidad y energía inmediata.
+    Mantén un ritmo ágil apropiado para un YouTube Short,
+    sin sonar apresurado ni como un locutor publicitario.
+    Usa pausas breves, enfatiza las palabras clave
+    y termina con una conclusión contundente.
+
+visuals:
+  provider: local-placeholder
+  model: gpt-image-2
+  aspect_ratio: "9:16"
+  width: 1024
+  height: 1536
+  style: educational cinematic illustration
+
+publishing:
+  enabled: false

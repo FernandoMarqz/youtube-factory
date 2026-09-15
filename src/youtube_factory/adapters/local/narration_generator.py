@@ -37,7 +37,7 @@ class LocalNarrationGenerator:
             topic_id=script.topic_id,
             file_path="narration.wav",
             duration_seconds=_DURATION_SECONDS,
-            provider=self.identifier,
+            provider="local",
             voice="synthetic-silence",
             audio_format="wav",
             sample_rate_hz=_SAMPLE_RATE_HZ,

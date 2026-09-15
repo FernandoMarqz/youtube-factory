@@ -76,6 +76,9 @@ data/projects/<project-id>/
 ├── narration.json
 ├── narration.wav
 ├── timed-scenes.json
+├── visual-prompts.json
+├── visual-assets.json
+├── assets/scene-XX.png
 └── manifest.json
 ```
 
@@ -88,7 +91,45 @@ narration, media generation, renderer, database or publishing integration exists
 `scenes.json` is a deterministic audiovisual timeline. Each scene has a narration segment,
 continuous start/end/duration estimates, a separate visual instruction and purpose, an asset type,
 and optional on-screen text or transition suggestion. It is planning data only: future TTS, visual
-assets, subtitles, transitions and rendering will consume it, but this command creates no media.
+assets, subtitles, transitions and rendering consume it without changing its creative intent.
+
+## Phase 4: visual prompts and assets
+
+`TimedScenePlan` now feeds two explicit provider-neutral stages:
+
+```text
+Scene.visual_description   semantic creative intent
+VisualPromptPlan           channel-aware, generation-ready instructions
+VisualAssetManifest        persisted PNG locations and traceability metadata
+```
+
+The deterministic prompt builder adds the selected channel's style, portrait/mobile composition,
+caption-safe space and exclusions for generated captions, logos, watermarks and UI. It does not
+simply forward `visual_description`, and its output is independently inspectable in
+`visual-prompts.json`.
+
+The default `local-placeholder` visual provider creates one real 1024x1536 PNG card per scene. It
+is deterministic, offline and needs no API key. An explicit OpenAI visual override uses the channel
+model (`gpt-image-2`) and the official Images API:
+
+```powershell
+python -m youtube_factory create-content `
+  --channel engineering-es `
+  --topic "¿Por qué las tapas de alcantarilla son redondas?" `
+  --narration-provider local `
+  --visual-provider openai
+```
+
+This manual smoke test makes one paid image request per scene (currently eight). It is never run by
+the automated test suite. The configured 1024x1536 portrait size maps directly to OpenAI's supported
+1024x1536 size; other dimensions map to the nearest supported square, landscape or portrait aspect
+without resizing or falsely reporting dimensions. `visual-assets.json` records the actual decoded
+PNG dimensions and a SHA-256 hash of the exact prompt sent.
+
+Provider precedence is the same for narration and visuals: an explicit CLI override wins over the
+selected channel YAML, and there is no implicit provider fallback. The safe channel default remains
+`local-placeholder` for visuals even though its OpenAI model is retained for an intentional CLI
+override.
 
 ## Phase 3: narration and timing
 
@@ -104,31 +145,42 @@ will later supply sentence or word timestamps for more precise reconciliation.
 
 ## Narration providers
 
-Local narration remains the default, so development and tests are deterministic, offline and
-zero-cost:
+Configuration has three distinct responsibilities:
+
+```text
+.env                         = secrets and machine-local infrastructure
+config/channels/*.yaml       = editorial and generation preferences
+data/projects/<project-id>/  = generated runtime artifacts
+```
+
+Copy `.env.example` to ignored `.env` and set only machine-local values such as
+`OPENAI_API_KEY` or `YOUTUBE_FACTORY_OUTPUT_DIR`. Channel voice, model, language, duration and
+future visual preferences live in version-controlled YAML, never in `.env`.
+
+`engineering-es` is the default channel and currently selects OpenAI narration. Use the local
+override for deterministic, offline and zero-cost development:
 
 ```powershell
 python -m youtube_factory create-content `
+  --channel engineering-es `
   --topic "¿Por qué las tapas de alcantarilla son redondas?" `
   --narration-provider local
 ```
 
-An intentional OpenAI smoke test can generate real Spanish speech through the same
-`NarrationGenerator` port. Copy `.env.example` to an ignored `.env`, set `OPENAI_API_KEY`, and
-never commit it. `create-content` loads only `.env` from the working directory; real process
-environment variables take precedence. It never loads `.env.example`. Then run:
+For a real OpenAI run, omit the override so the selected channel supplies the configured model,
+voice and instructions:
 
 ```powershell
 python -m youtube_factory create-content `
-  --topic "¿Por qué las tapas de alcantarilla son redondas?" `
-  --narration-provider openai
+  --channel engineering-es `
+  --topic "¿Por qué las tapas de alcantarilla son redondas?"
 ```
 
-`OPENAI_TTS_MODEL` defaults to `gpt-4o-mini-tts`, `OPENAI_TTS_VOICE` defaults to `cedar`, and
-`OPENAI_TTS_INSTRUCTIONS` controls the Spanish delivery style. The OpenAI adapter requests WAV,
-measures the returned audio, persists provider-neutral metadata in `narration.json`, and keeps
-`scenes.json` separate from the audio-authoritative `timed-scenes.json`. No API call is made by
-the default command or the automated test suite.
+An explicit `--narration-provider` takes precedence over the channel provider for that invocation;
+otherwise the channel is the source of truth. `create-content` loads only `.env` from its working
+directory, and real process environment variables take precedence. It never loads `.env.example`.
+The manifest records the selected channel and provider/model/voice/duration without copying secrets
+or the full channel file.
 
 In PowerShell, this prompts for the key instead of placing it in shell history:
 

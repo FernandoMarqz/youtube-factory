@@ -1,9 +1,7 @@
-"""Provider-independent inspection of the WAV artifact used in the local milestone."""
-
-import wave
-from io import BytesIO
+"""Provider-independent inspection of a persisted WAV artifact."""
 
 from youtube_factory.application.exceptions import InvalidAudioArtifactError
+from youtube_factory.application.services.wav import InvalidWavError, inspect_pcm_wav
 from youtube_factory.domain.models import Narration
 
 
@@ -12,15 +10,15 @@ def validate_wav_narration(narration: Narration, audio_bytes: bytes) -> None:
     if narration.audio_format != "wav":
         raise InvalidAudioArtifactError("narration must use WAV audio")
     try:
-        with wave.open(BytesIO(audio_bytes), "rb") as wav_file:
-            if wav_file.getnchannels() != 1 or wav_file.getsampwidth() != 2:
-                raise InvalidAudioArtifactError("narration WAV must be mono 16-bit PCM")
-            if wav_file.getframerate() != narration.sample_rate_hz:
-                raise InvalidAudioArtifactError("WAV sample rate does not match narration metadata")
-            actual_duration = wav_file.getnframes() / wav_file.getframerate()
-    except (EOFError, wave.Error) as error:
+        wav_info = inspect_pcm_wav(audio_bytes)
+    except InvalidWavError as error:
         raise InvalidAudioArtifactError(
             "generated narration is not a readable WAV artifact"
         ) from error
+    if wav_info.channels != 1 or wav_info.sample_width_bytes != 2:
+        raise InvalidAudioArtifactError("narration WAV must be mono 16-bit PCM")
+    if wav_info.sample_rate_hz != narration.sample_rate_hz:
+        raise InvalidAudioArtifactError("WAV sample rate does not match narration metadata")
+    actual_duration = wav_info.duration_seconds
     if abs(actual_duration - narration.duration_seconds) > 0.001:
         raise InvalidAudioArtifactError("WAV duration does not match narration metadata")

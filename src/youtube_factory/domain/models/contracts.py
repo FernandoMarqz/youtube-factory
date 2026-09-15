@@ -1,7 +1,10 @@
 """Pydantic contracts exchanged between pipeline stages."""
 
+from __future__ import annotations
+
 from datetime import datetime
 from math import isclose
+from pathlib import PurePosixPath
 from typing import Annotated
 from uuid import UUID, uuid4
 
@@ -69,19 +72,38 @@ class Script(DomainModel):
     claims: list[NonEmptyText] = Field(min_length=1)
 
 
+class NarrationGeneratorMetadata(DomainModel):
+    """Provider-neutral narration context retained in a project manifest."""
+
+    provider: NonEmptyText
+    model: NonEmptyText | None = None
+    voice: NonEmptyText
+    duration_seconds: PositiveSeconds
+
+
+class VisualAssetGeneratorMetadata(DomainModel):
+    """Provider-neutral visual generation context retained in the manifest."""
+
+    provider: NonEmptyText
+    model: NonEmptyText | None = None
+    asset_count: PositiveSequence
+
+
 class ContentManifest(DomainModel):
     """Stable inventory of artifacts produced by the content foundation pipeline."""
 
     project_id: UUID
     pipeline_version: NonEmptyText
+    channel_id: NonEmptyText
     topic: NonEmptyText
     topic_id: UUID
     artifacts: tuple[NonEmptyText, ...] = Field(min_length=1)
     research_provider: NonEmptyText
     script_generator: NonEmptyText
     scene_planner: NonEmptyText | None = None
-    narration_generator: NonEmptyText | None = None
+    narration_generator: NarrationGeneratorMetadata | None = None
     timing_reconciliation_strategy: NonEmptyText | None = None
+    visual_asset_generator: VisualAssetGeneratorMetadata | None = None
 
 
 class Scene(DomainModel):
@@ -99,7 +121,7 @@ class Scene(DomainModel):
     transition_suggestion: str | None = None
 
     @model_validator(mode="after")
-    def has_consistent_timing(self) -> "Scene":
+    def has_consistent_timing(self) -> Scene:
         if self.end_seconds <= self.start_seconds:
             raise ValueError("scene end time must be greater than its start time")
         if not isclose(
@@ -120,7 +142,7 @@ class ScenePlan(DomainModel):
     total_duration_seconds: PositiveSeconds
 
     @model_validator(mode="after")
-    def has_contiguous_scene_sequences(self) -> "ScenePlan":
+    def has_contiguous_scene_sequences(self) -> ScenePlan:
         _validate_timeline(self.scenes, self.total_duration_seconds)
         return self
 
@@ -177,7 +199,7 @@ class TimedScenePlan(DomainModel):
     scenes: list[Scene] = Field(min_length=1)
 
     @model_validator(mode="after")
-    def has_narration_aligned_timeline(self) -> "TimedScenePlan":
+    def has_narration_aligned_timeline(self) -> TimedScenePlan:
         _validate_timeline(self.scenes, self.total_duration_seconds)
         if not isclose(
             self.total_duration_seconds,
@@ -186,6 +208,82 @@ class TimedScenePlan(DomainModel):
             abs_tol=0.001,
         ):
             raise ValueError("timed plan duration must match narration duration")
+        return self
+
+
+class VisualPrompt(DomainModel):
+    """A provider-ready image instruction derived from one timed scene."""
+
+    scene_sequence: PositiveSequence
+    prompt: NonEmptyText
+    exclusions: NonEmptyText | None = None
+    visual_intent: NonEmptyText
+    asset_type: AssetType
+    width: Annotated[int, Field(gt=0)]
+    height: Annotated[int, Field(gt=0)]
+    aspect_ratio: NonEmptyText
+    style: NonEmptyText
+
+
+class VisualPromptPlan(DomainModel):
+    """Ordered generation-ready visual instructions for a timed scene plan."""
+
+    topic_id: UUID
+    channel_id: NonEmptyText
+    prompts: list[VisualPrompt] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def has_ordered_unique_prompts(self) -> VisualPromptPlan:
+        sequences = [prompt.scene_sequence for prompt in self.prompts]
+        if sequences != list(range(1, len(self.prompts) + 1)):
+            raise ValueError("visual prompt sequences must be contiguous and start at 1")
+        return self
+
+
+class VisualAsset(DomainModel):
+    """Metadata for one persisted provider-neutral PNG assigned to a scene."""
+
+    scene_sequence: PositiveSequence
+    provider: NonEmptyText
+    model: NonEmptyText | None = None
+    file_path: NonEmptyText
+    width: Annotated[int, Field(gt=0)]
+    height: Annotated[int, Field(gt=0)]
+    media_type: Annotated[str, Field(pattern=r"^image/png$")] = "image/png"
+    prompt_sha256: Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
+    revised_prompt: NonEmptyText | None = None
+
+    @model_validator(mode="after")
+    def has_relative_project_path(self) -> VisualAsset:
+        path = PurePosixPath(self.file_path)
+        if (
+            path.is_absolute()
+            or ".." in path.parts
+            or path.as_posix() != self.file_path
+            or path.suffix.lower() != ".png"
+        ):
+            raise ValueError("visual asset path must be a normalized project-relative path")
+        return self
+
+
+class VisualAssetManifest(DomainModel):
+    """Inventory connecting each scene to its generated visual asset."""
+
+    topic_id: UUID
+    channel_id: NonEmptyText
+    provider: NonEmptyText
+    model: NonEmptyText | None = None
+    assets: list[VisualAsset] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def has_consistent_ordered_assets(self) -> VisualAssetManifest:
+        sequences = [asset.scene_sequence for asset in self.assets]
+        if sequences != list(range(1, len(self.assets) + 1)):
+            raise ValueError("visual asset sequences must be contiguous and start at 1")
+        if any(asset.provider != self.provider for asset in self.assets):
+            raise ValueError("visual assets must match the manifest provider")
+        if any(asset.model != self.model for asset in self.assets):
+            raise ValueError("visual assets must match the manifest model")
         return self
 
 
@@ -221,7 +319,7 @@ class RenderResult(DomainModel):
     fps: PositiveSeconds
 
     @model_validator(mode="after")
-    def is_vertical_video(self) -> "RenderResult":
+    def is_vertical_video(self) -> RenderResult:
         if self.height <= self.width:
             raise ValueError("rendered video must use a vertical aspect ratio")
         return self
@@ -244,7 +342,7 @@ class ShortProject(DomainModel):
     render_result: RenderResult | None = None
 
     @model_validator(mode="after")
-    def artifacts_belong_to_project_topic(self) -> "ShortProject":
+    def artifacts_belong_to_project_topic(self) -> ShortProject:
         topic_id = self.topic.id
         artifacts = [self.research, self.script, self.scene_plan, self.narration, self.render_job]
         if any(artifact is not None and artifact.topic_id != topic_id for artifact in artifacts):

@@ -69,8 +69,8 @@ topic and exist to validate ports, contracts, orchestration and reproducible per
 external AI or research integrations. The deterministic scene plan contains a continuous,
 eight-scene, 34-second audiovisual timeline. The deterministic local WAV is measurable at 36.72
 seconds, and the separate timed plan reconciles scene boundaries to that authoritative media
-duration. Local narration remains the default, while an explicit OpenAI TTS adapter can now produce
-real WAV speech using environment configuration. Assets, subtitles and rendering remain future
+duration. Channel/editorial settings now live in typed `config/channels/*.yaml`, while `.env` is
+limited to secrets and machine-local infrastructure. Assets, subtitles and rendering remain future
 work; therefore this subset does not yet satisfy the full Phase 1 vertical-MP4 definition of done.
 
 ---
@@ -106,10 +106,30 @@ Produce reusable narration and visual assets.
 - first visual adapter
 - reusable asset metadata
 - audio duration extraction
+- typed channel configuration foundation for narration and future visuals
 
 ---
 
-## Phase 4 — Renderer
+## Phase 4 — Visual Prompt And Asset Foundation
+
+### Goal
+
+Produce one validated provider-neutral visual prompt and PNG asset per timed scene.
+
+### Deliverables
+
+- `VisualPromptPlan`
+- `VisualAssetManifest`
+- deterministic prompt builder
+- local placeholder provider
+- OpenAI Images provider
+- prompt hashes and manifest metadata
+
+Status: complete.
+
+---
+
+## Phase 5 — Renderer
 
 ### Goal
 
@@ -128,7 +148,7 @@ Produce Shorts with consistent visual quality.
 
 ---
 
-## Phase 5 — Persistence
+## Phase 6 — Persistence
 
 ### Goal
 
@@ -157,7 +177,7 @@ FAILED
 
 ---
 
-## Phase 6 — Internal API And n8n
+## Phase 7 — Internal API And n8n
 
 ### Goal
 
@@ -177,7 +197,7 @@ n8n must orchestrate only. Business logic stays in Python.
 
 ---
 
-## Phase 7 — YouTube Publishing
+## Phase 8 — YouTube Publishing
 
 ### Goal
 
@@ -194,7 +214,7 @@ Publish approved content through YouTube APIs.
 
 ---
 
-## Phase 8 — Analytics
+## Phase 9 — Analytics
 
 ### Goal
 
@@ -218,7 +238,7 @@ Suggested snapshots:
 
 ---
 
-## Phase 9 — Experiment Engine
+## Phase 10 — Experiment Engine
 
 ### Goal
 
@@ -245,7 +265,7 @@ Understand which content attributes correlate with performance.
 
 ---
 
-## Phase 10 — Multi-Channel
+## Phase 11 — Multi-Channel
 
 ### Goal
 

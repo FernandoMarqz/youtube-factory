@@ -31,3 +31,27 @@ class InvalidAudioArtifactError(ContentPipelineError):
 
 class TimingReconciliationError(ContentPipelineError):
     """Raised when an estimated scene plan cannot be aligned with narration timing."""
+
+
+class ChannelConfigurationError(ContentPipelineError):
+    """Raised when a channel configuration cannot be loaded or validated."""
+
+
+class ChannelNotFoundError(ChannelConfigurationError):
+    """Raised when the requested channel configuration file does not exist."""
+
+
+class VisualConfigurationError(ContentPipelineError):
+    """Raised when a selected visual provider is not configured safely."""
+
+
+class VisualPromptGenerationError(ContentPipelineError):
+    """Raised when timed scenes cannot become valid visual prompts."""
+
+
+class VisualAssetGenerationError(ContentPipelineError):
+    """Raised when a visual provider cannot generate an image."""
+
+
+class VisualAssetValidationError(ContentPipelineError):
+    """Raised when generated image bytes are empty, malformed or unsupported."""

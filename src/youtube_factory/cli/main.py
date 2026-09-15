@@ -4,21 +4,35 @@ import argparse
 from collections.abc import Sequence
 from pathlib import Path
 
-from dotenv import load_dotenv
-
 from youtube_factory import __version__
 from youtube_factory.adapters.local import (
     FileSystemArtifactStore,
     LocalNarrationGenerator,
+    LocalPlaceholderVisualAssetProvider,
     LocalResearchProvider,
     LocalScenePlanner,
     LocalScriptGenerator,
 )
-from youtube_factory.adapters.openai import OpenAINarrationGenerator, OpenAITTSConfig
+from youtube_factory.adapters.openai import (
+    OpenAINarrationGenerator,
+    OpenAITTSConfig,
+    OpenAIVisualAssetProvider,
+    OpenAIVisualConfig,
+)
+from youtube_factory.application.config import (
+    ChannelConfig,
+    get_openai_api_key,
+    get_output_directory,
+    load_channel_config,
+    load_local_environment,
+)
 from youtube_factory.application.exceptions import ContentPipelineError
-from youtube_factory.application.services import SceneTimingReconciler
+from youtube_factory.application.services import (
+    DeterministicVisualPromptBuilder,
+    SceneTimingReconciler,
+)
 from youtube_factory.application.use_cases import CreateContentUseCase
-from youtube_factory.ports import NarrationGenerator
+from youtube_factory.ports import NarrationGenerator, VisualAssetProvider
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -28,20 +42,31 @@ def build_parser() -> argparse.ArgumentParser:
     subcommands = parser.add_subparsers(dest="command")
     subcommands.add_parser("status", help="Show bootstrap readiness.")
     create_content = subcommands.add_parser(
-        "create-content", help="Create deterministic research, script and scene artifacts."
+        "create-content", help="Create content, narration, timing and visual artifacts."
     )
     create_content.add_argument("--topic", required=True, help="Spanish topic to create.")
     create_content.add_argument(
+        "--channel",
+        default="engineering-es",
+        help="Channel configuration id (default: engineering-es).",
+    )
+    create_content.add_argument(
         "--narration-provider",
         choices=("local", "openai"),
-        default="local",
-        help="Narration implementation to use (default: local).",
+        default=None,
+        help="Optional narration override; otherwise the selected channel decides.",
+    )
+    create_content.add_argument(
+        "--visual-provider",
+        choices=("local-placeholder", "openai"),
+        default=None,
+        help="Optional visual override; otherwise the selected channel decides.",
     )
     create_content.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("data/projects"),
-        help="Directory where project folders are written (default: data/projects).",
+        default=None,
+        help="Directory where project folders are written; overrides YOUTUBE_FACTORY_OUTPUT_DIR.",
     )
     return parser
 
@@ -54,13 +79,19 @@ def main(argv: Sequence[str] | None = None) -> None:
     elif args.command == "create-content":
         load_local_environment()
         try:
+            channel = load_channel_config(args.channel)
             use_case = CreateContentUseCase(
                 research_provider=LocalResearchProvider(),
                 script_generator=LocalScriptGenerator(),
                 scene_planner=LocalScenePlanner(),
-                narration_generator=build_narration_generator(args.narration_provider),
+                narration_generator=build_narration_generator(channel, args.narration_provider),
                 timing_reconciler=SceneTimingReconciler(),
-                artifact_store=FileSystemArtifactStore(args.output_dir),
+                channel_config=channel,
+                visual_prompt_builder=DeterministicVisualPromptBuilder(),
+                visual_asset_provider=build_visual_asset_provider(channel, args.visual_provider),
+                artifact_store=FileSystemArtifactStore(
+                    args.output_dir or get_output_directory(Path("data/projects"))
+                ),
             )
             result = use_case.execute(args.topic)
         except ContentPipelineError as error:
@@ -68,16 +99,40 @@ def main(argv: Sequence[str] | None = None) -> None:
         print(result.project_directory)
 
 
-def build_narration_generator(provider: str) -> NarrationGenerator:
-    """Select an explicit narration adapter at the CLI composition root."""
+def build_narration_generator(
+    channel: ChannelConfig, narration_provider_override: str | None = None
+) -> NarrationGenerator:
+    """Compose narration from channel settings with an optional explicit provider override."""
+    provider = narration_provider_override or channel.narration.provider
     if provider == "local":
         return LocalNarrationGenerator()
     if provider == "openai":
-        return OpenAINarrationGenerator(OpenAITTSConfig.from_environment())
+        narration = channel.narration
+        if narration.model is None or narration.voice is None or narration.instructions is None:
+            raise ValueError("OpenAI channel narration settings are incomplete")
+        return OpenAINarrationGenerator(
+            OpenAITTSConfig(
+                api_key=get_openai_api_key(),
+                model=narration.model,
+                voice=narration.voice,
+                instructions=narration.instructions,
+            )
+        )
     raise ValueError(f"unsupported narration provider: {provider}")
 
 
-def load_local_environment(dotenv_path: Path | None = None) -> bool:
-    """Load only the working directory's optional .env without replacing real environment values."""
-    local_dotenv_path = dotenv_path if dotenv_path is not None else Path.cwd() / ".env"
-    return load_dotenv(dotenv_path=local_dotenv_path, override=False)
+def build_visual_asset_provider(
+    channel: ChannelConfig, visual_provider_override: str | None = None
+) -> VisualAssetProvider:
+    """Compose visuals from channel settings with an optional explicit provider override."""
+    provider = visual_provider_override or channel.visuals.provider
+    if provider == "local-placeholder":
+        return LocalPlaceholderVisualAssetProvider()
+    if provider == "openai":
+        model = channel.visuals.model
+        if model is None:
+            raise ContentPipelineError("OpenAI channel visual model is not configured")
+        return OpenAIVisualAssetProvider(
+            OpenAIVisualConfig(api_key=get_openai_api_key("visuals"), model=model)
+        )
+    raise ContentPipelineError(f"unsupported visual provider: {provider}")

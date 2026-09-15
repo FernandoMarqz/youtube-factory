@@ -5,6 +5,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+from pytest import MonkeyPatch
+
+from youtube_factory.adapters.local import LocalPlaceholderVisualAssetProvider
+from youtube_factory.application.config import load_channel_config
+from youtube_factory.cli.main import build_visual_asset_provider
 from youtube_factory.domain.models import (
     ContentManifest,
     Narration,
@@ -13,6 +18,8 @@ from youtube_factory.domain.models import (
     Script,
     TimedScenePlan,
     Topic,
+    VisualAssetManifest,
+    VisualPromptPlan,
 )
 
 
@@ -35,6 +42,8 @@ def test_create_content_writes_parseable_artifacts(tmp_path: Path) -> None:
             "-m",
             "youtube_factory",
             "create-content",
+            "--channel",
+            "engineering-es",
             "--topic",
             "¿Por qué las tapas de alcantarilla son redondas?",
             "--output-dir",
@@ -66,7 +75,65 @@ def test_create_content_writes_parseable_artifacts(tmp_path: Path) -> None:
         (project_directory / "manifest.json").read_text("utf-8")
     )
     assert (project_directory / "narration.wav").is_file()
+    visual_prompts = VisualPromptPlan.model_validate_json(
+        (project_directory / "visual-prompts.json").read_text("utf-8")
+    )
+    visual_assets = VisualAssetManifest.model_validate_json(
+        (project_directory / "visual-assets.json").read_text("utf-8")
+    )
+    assert len(visual_prompts.prompts) == len(timed_scene_plan.scenes)
+    assert len(visual_assets.assets) == len(timed_scene_plan.scenes)
+    assert all((project_directory / asset.file_path).is_file() for asset in visual_assets.assets)
     assert timed_scene_plan.total_duration_seconds == narration.duration_seconds
+    manifest = ContentManifest.model_validate_json(
+        (project_directory / "manifest.json").read_text("utf-8")
+    )
+    assert manifest.channel_id == "engineering-es"
+    assert manifest.pipeline_version == "content-pipeline-v1"
+    assert manifest.narration_generator is not None
+    assert manifest.narration_generator.provider == "local"
+    assert manifest.narration_generator.duration_seconds == narration.duration_seconds
+    assert manifest.visual_asset_generator is not None
+    assert manifest.visual_asset_generator.provider == "local-placeholder"
+    assert manifest.visual_asset_generator.asset_count == len(timed_scene_plan.scenes)
+
+
+def test_openai_visual_override_fails_cleanly_without_api_key(tmp_path: Path) -> None:
+    environment = {**os.environ, "OPENAI_API_KEY": ""}
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "youtube_factory",
+            "create-content",
+            "--topic",
+            "¿Por qué las tapas de alcantarilla son redondas?",
+            "--narration-provider",
+            "local",
+            "--visual-provider",
+            "openai",
+            "--output-dir",
+            str(tmp_path),
+        ],
+        check=False,
+        capture_output=True,
+        env=environment,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "OPENAI_API_KEY is required when visual provider is openai" in result.stderr
+
+
+def test_explicit_local_visual_override_wins_without_openai_key(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    channel = load_channel_config("engineering-es")
+
+    provider = build_visual_asset_provider(channel, "local-placeholder")
+
+    assert isinstance(provider, LocalPlaceholderVisualAssetProvider)
 
 
 def test_openai_provider_fails_cleanly_without_api_key(tmp_path: Path) -> None:

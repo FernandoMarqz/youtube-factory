@@ -4,6 +4,7 @@ from youtube_factory.domain.models.contracts import (
     Asset,
     ContentManifest,
     Narration,
+    NarrationGeneratorMetadata,
     RenderJob,
     RenderResult,
     ResearchResult,
@@ -14,12 +15,18 @@ from youtube_factory.domain.models.contracts import (
     Source,
     TimedScenePlan,
     Topic,
+    VisualAsset,
+    VisualAssetGeneratorMetadata,
+    VisualAssetManifest,
+    VisualPrompt,
+    VisualPromptPlan,
 )
 
 __all__ = [
     "Asset",
     "ContentManifest",
     "Narration",
+    "NarrationGeneratorMetadata",
     "RenderJob",
     "RenderResult",
     "ResearchResult",
@@ -30,4 +37,9 @@ __all__ = [
     "Source",
     "TimedScenePlan",
     "Topic",
+    "VisualAsset",
+    "VisualAssetGeneratorMetadata",
+    "VisualAssetManifest",
+    "VisualPrompt",
+    "VisualPromptPlan",
 ]
