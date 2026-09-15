@@ -33,6 +33,18 @@ class TimingReconciliationError(ContentPipelineError):
     """Raised when an estimated scene plan cannot be aligned with narration timing."""
 
 
+class ScenePlannerConfigurationError(ContentPipelineError):
+    """Raised when the selected scene planner lacks required configuration."""
+
+
+class ScenePlanningError(ContentPipelineError):
+    """Raised when a scene provider cannot produce a plan."""
+
+
+class ScenePlanValidationError(ScenePlanningError):
+    """Raised when provider output violates semantic scene-planning invariants."""
+
+
 class ChannelConfigurationError(ContentPipelineError):
     """Raised when a channel configuration cannot be loaded or validated."""
 

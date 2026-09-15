@@ -31,6 +31,7 @@ from youtube_factory.domain.models import (
     NarrationGeneratorMetadata,
     ResearchResult,
     ScenePlan,
+    ScenePlannerMetadata,
     Script,
     TimedScenePlan,
     Topic,
@@ -136,7 +137,11 @@ class CreateContentUseCase:
             ),
             research_provider=self._research_provider.identifier,
             script_generator=self._script_generator.identifier,
-            scene_planner=self._scene_planner.identifier,
+            scene_planner=ScenePlannerMetadata(
+                provider=self._scene_planner.provider,
+                model=self._scene_planner.model,
+                identifier=self._scene_planner.identifier,
+            ),
             narration_generator=NarrationGeneratorMetadata(
                 provider=generated_narration.narration.provider,
                 model=generated_narration.narration.model,

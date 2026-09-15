@@ -73,6 +73,8 @@ class RecordingScenePlanner:
     """Port test double that records the supplied script."""
 
     identifier = "recording-scene-planner"
+    provider = "local"
+    model: str | None = None
 
     def __init__(self) -> None:
         self.invocations: list[Script] = []
@@ -162,6 +164,8 @@ class FailingScenePlanner:
     """Scene-planning port that models a local planning failure."""
 
     identifier = "failing-scene-planner"
+    provider = "local"
+    model: str | None = None
 
     def plan(self, script: Script) -> ScenePlan:
         raise UnsupportedTopicError("scene planning is unavailable")

@@ -15,6 +15,8 @@ def test_engineering_channel_loads_with_expected_typed_values() -> None:
     assert config.id == "engineering-es"
     assert config.language == "es-ES"
     assert config.content.target_duration_seconds == 35
+    assert config.scene_planning.provider == "local"
+    assert config.scene_planning.model == "gpt-5.6-luna"
     assert config.narration.provider == "openai"
     assert config.narration.model == "gpt-4o-mini-tts"
     assert config.visuals.aspect_ratio == "9:16"
@@ -44,6 +46,12 @@ content:
   target_duration_seconds: 35
   min_duration_seconds: 25
   max_duration_seconds: 45
+scene_planning:
+  provider: local
+  model: gpt-5.6-luna
+  min_scenes: 6
+  max_scenes: 9
+  target_scene_duration_seconds: 4.5
 narration:
   provider: openai
   model: gpt-4o-mini-tts
@@ -127,3 +135,45 @@ def test_openai_visual_provider_with_model_is_valid(tmp_path: Path) -> None:
 
     assert config.visuals.provider == "openai"
     assert config.visuals.model == "gpt-image-2"
+
+
+@pytest.mark.parametrize(
+    "yaml_content",
+    [
+        valid_channel_yaml().replace("min_scenes: 6", "min_scenes: 0"),
+        valid_channel_yaml().replace("max_scenes: 9", "max_scenes: 5"),
+        valid_channel_yaml().replace(
+            "target_scene_duration_seconds: 4.5", "target_scene_duration_seconds: 0"
+        ),
+        valid_channel_yaml().replace(
+            "scene_planning:\n  provider: local",
+            "scene_planning:\n  provider: unsupported",
+        ),
+    ],
+)
+def test_invalid_scene_planning_settings_fail(tmp_path: Path, yaml_content: str) -> None:
+    channels_directory = write_channel(tmp_path, yaml_content)
+
+    with pytest.raises(ChannelConfigurationError, match="invalid channel"):
+        load_channel_config("test-channel", channels_directory)
+
+
+def test_openai_scene_planning_requires_model(tmp_path: Path) -> None:
+    yaml_content = valid_channel_yaml().replace(
+        "scene_planning:\n  provider: local\n  model: gpt-5.6-luna",
+        "scene_planning:\n  provider: openai",
+    )
+    channels_directory = write_channel(tmp_path, yaml_content)
+
+    with pytest.raises(ChannelConfigurationError, match="invalid channel"):
+        load_channel_config("test-channel", channels_directory)
+
+
+def test_local_scene_planning_allows_null_model(tmp_path: Path) -> None:
+    yaml_content = valid_channel_yaml().replace("  model: gpt-5.6-luna\n", "", 1)
+    channels_directory = write_channel(tmp_path, yaml_content)
+
+    config = load_channel_config("test-channel", channels_directory)
+
+    assert config.scene_planning.provider == "local"
+    assert config.scene_planning.model is None

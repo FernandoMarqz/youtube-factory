@@ -127,6 +127,13 @@ Produce one validated provider-neutral visual prompt and PNG asset per timed sce
 
 Status: complete.
 
+### Phase 4B extension
+
+Dynamic semantic scene planning is available through `OpenAIScenePlanner` using structured model
+output, strict narration reconstruction and deterministic estimated-duration normalization. The
+local fixture planner remains the offline default, and real narration remains authoritative for
+`TimedScenePlan`.
+
 ---
 
 ## Phase 5 — Renderer

@@ -6,9 +6,11 @@ from youtube_factory.domain.models import Scene, ScenePlan, Script
 
 
 class LocalScenePlanner:
-    """Creates a stable eight-scene visual timeline for the reference script."""
+    """Fixture-like planner retained for offline development and regression tests."""
 
     identifier = "local-scene-planner-v1"
+    provider = "local"
+    model: str | None = None
 
     def plan(self, script: Script) -> ScenePlan:
         """Plan a 34-second audiovisual timeline without producing media."""

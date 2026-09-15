@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 
 from youtube_factory.application.exceptions import (
     NarrationGenerationError,
+    ScenePlannerConfigurationError,
     VisualConfigurationError,
 )
 
@@ -18,10 +19,16 @@ def load_local_environment(dotenv_path: Path | None = None) -> bool:
     return load_dotenv(dotenv_path=local_dotenv_path, override=False)
 
 
-def get_openai_api_key(required_for: Literal["narration", "visuals"] = "narration") -> str:
+def get_openai_api_key(
+    required_for: Literal["narration", "scene_planning", "visuals"] = "narration",
+) -> str:
     """Return the configured API key without logging or persisting its value."""
     api_key = os.environ.get("OPENAI_API_KEY", "").strip()
     if not api_key:
+        if required_for == "scene_planning":
+            raise ScenePlannerConfigurationError(
+                "OPENAI_API_KEY is required when scene planner is openai"
+            )
         if required_for == "visuals":
             raise VisualConfigurationError(
                 "OPENAI_API_KEY is required when visual provider is openai"

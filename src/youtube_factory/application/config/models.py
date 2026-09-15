@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 NonEmptyText = Annotated[str, Field(min_length=1)]
 PositiveInt = Annotated[int, Field(gt=0)]
+PositiveFloat = Annotated[float, Field(gt=0)]
 
 
 class ChannelConfigModel(BaseModel):
@@ -52,6 +53,25 @@ class NarrationConfig(ChannelConfigModel):
         return self
 
 
+class ScenePlanningConfig(ChannelConfigModel):
+    """Provider-neutral semantic scene-planning preferences for one channel."""
+
+    provider: Literal["local", "openai"]
+    model: NonEmptyText | None = None
+    min_scenes: PositiveInt
+    max_scenes: PositiveInt
+    target_scene_duration_seconds: PositiveFloat
+
+    @model_validator(mode="after")
+    def has_valid_bounds_and_provider_settings(self) -> "ScenePlanningConfig":
+        """Validate scene-count bounds and paid-provider model configuration."""
+        if self.max_scenes < self.min_scenes:
+            raise ValueError("maximum scene count must be greater than or equal to minimum")
+        if self.provider == "openai" and not self.model:
+            raise ValueError("OpenAI scene planning requires a model")
+        return self
+
+
 class VisualConfig(ChannelConfigModel):
     """Provider-neutral visual generation preferences for one channel."""
 
@@ -82,6 +102,7 @@ class ChannelConfig(ChannelConfigModel):
     id: Annotated[str, Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")]
     language: NonEmptyText
     content: ContentConfig
+    scene_planning: ScenePlanningConfig
     narration: NarrationConfig
     visuals: VisualConfig
     publishing: PublishingConfig

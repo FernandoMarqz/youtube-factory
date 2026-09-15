@@ -131,6 +131,53 @@ selected channel YAML, and there is no implicit provider fallback. The safe chan
 `local-placeholder` for visuals even though its OpenAI model is retained for an intentional CLI
 override.
 
+## Phase 4B: AI scene planning
+
+Scene planning now has two implementations behind the unchanged provider-neutral `ScenePlanner`
+port:
+
+- `LocalScenePlanner` is the fixed eight-scene adapter for offline regression work.
+- `OpenAIScenePlanner` uses OpenAI Responses Structured Outputs for arbitrary validated `Script`
+  values.
+
+The channel defaults to local planning. An explicit `--scene-planner` overrides the channel for one
+run; no automatic fallback occurs. OpenAI output is first validated against a provider-private
+Pydantic schema, then checked for contiguous sequence, configured scene count and exact narration
+reconstruction. Reconstruction ignores only whitespace-run differences; changed punctuation,
+invented words, omissions, repetitions and reordering fail the stage.
+
+AI duration values are relative estimates. They are deterministically normalized to
+`Script.estimated_duration_seconds` for `scenes.json`. After narration exists, the unchanged
+`SceneTimingReconciler` makes `timed-scenes.json` end at the measured WAV duration. `ANIMATION`
+continues to mean creative motion intent only; Phase 4 still creates one static PNG per scene.
+
+Local planner execution:
+
+```powershell
+python -m youtube_factory create-content `
+  --channel engineering-es `
+  --topic "¿Por qué las tapas de alcantarilla son redondas?" `
+  --scene-planner local `
+  --narration-provider local `
+  --visual-provider local-placeholder
+```
+
+Paid planner-only smoke test for the currently supported upstream reference topic:
+
+```powershell
+python -m youtube_factory create-content `
+  --channel engineering-es `
+  --topic "¿Por qué las tapas de alcantarilla son redondas?" `
+  --scene-planner openai `
+  --narration-provider local `
+  --visual-provider local-placeholder
+```
+
+Only scene planning is expected to use paid API capacity in that command. The OpenAI planner itself
+supports arbitrary scripts, but `create-content` still uses fixture-like local research and script
+providers that accept only the reference topic. A command for a new topic such as bridge expansion
+joints will become executable after a future arbitrary-topic research/script milestone.
+
 ## Phase 3: narration and timing
 
 The local pipeline now creates one deterministic, valid mono PCM/WAV narration track at 16 kHz.

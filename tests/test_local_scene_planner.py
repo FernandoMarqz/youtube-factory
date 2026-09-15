@@ -20,6 +20,8 @@ def test_local_scene_planner_creates_a_continuous_eight_scene_timeline() -> None
     second_plan = planner.plan(script)
 
     assert len(first_plan.scenes) == 8
+    assert planner.provider == "local"
+    assert planner.model is None
     assert first_plan.total_duration_seconds == 34.0
     assert first_plan == second_plan
     assert first_plan.scenes[0].start_seconds == 0.0

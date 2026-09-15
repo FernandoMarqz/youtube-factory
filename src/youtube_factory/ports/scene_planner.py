@@ -9,6 +9,8 @@ class ScenePlanner(Protocol):
     """Transforms a validated script into a timed audiovisual plan."""
 
     identifier: str
+    provider: str
+    model: str | None
 
     def plan(self, script: Script) -> ScenePlan:
         """Return a continuous audiovisual timeline for the script."""

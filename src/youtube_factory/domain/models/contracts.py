@@ -81,6 +81,14 @@ class NarrationGeneratorMetadata(DomainModel):
     duration_seconds: PositiveSeconds
 
 
+class ScenePlannerMetadata(DomainModel):
+    """Provider-neutral scene-planner identity retained in the project manifest."""
+
+    provider: NonEmptyText
+    model: NonEmptyText | None = None
+    identifier: NonEmptyText
+
+
 class VisualAssetGeneratorMetadata(DomainModel):
     """Provider-neutral visual generation context retained in the manifest."""
 
@@ -100,7 +108,7 @@ class ContentManifest(DomainModel):
     artifacts: tuple[NonEmptyText, ...] = Field(min_length=1)
     research_provider: NonEmptyText
     script_generator: NonEmptyText
-    scene_planner: NonEmptyText | None = None
+    scene_planner: ScenePlannerMetadata | None = None
     narration_generator: NarrationGeneratorMetadata | None = None
     timing_reconciliation_strategy: NonEmptyText | None = None
     visual_asset_generator: VisualAssetGeneratorMetadata | None = None

@@ -4,7 +4,7 @@ import wave
 from hashlib import sha256
 from io import BytesIO
 
-from youtube_factory.application.exceptions import NarrationGenerationError, UnsupportedTopicError
+from youtube_factory.application.exceptions import NarrationGenerationError
 from youtube_factory.domain.models import Narration, Script
 from youtube_factory.ports.narration import GeneratedNarration
 
@@ -13,14 +13,12 @@ _DURATION_SECONDS = 36.72
 
 
 class LocalNarrationGenerator:
-    """Produces a valid silent WAV track for the reference script without a TTS dependency."""
+    """Produces a deterministic silent WAV for any valid script without a TTS dependency."""
 
     identifier = "local-wav-narration-v1"
 
     def generate(self, script: Script) -> GeneratedNarration:
         """Create deterministic PCM/WAV bytes for the complete final script narration."""
-        if not script.full_narration.startswith("¿Sabías"):
-            raise UnsupportedTopicError("unsupported script for local narration generation")
         frame_count = int(_SAMPLE_RATE_HZ * _DURATION_SECONDS)
         try:
             buffer = BytesIO()

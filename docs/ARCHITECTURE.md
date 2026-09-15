@@ -182,6 +182,24 @@ Both adapters return bytes to `ProjectArtifactStore`; neither writes arbitrary f
 Prompt SHA-256 hashes connect each asset to the exact provider input without claiming that paid image
 generation itself is deterministic.
 
+## Dynamic semantic scene planning
+
+`ScenePlanner` remains the provider-neutral `Script -> ScenePlan` port. `LocalScenePlanner` preserves
+the reference eight-scene fixture. `OpenAIScenePlanner` uses the Responses API Structured Outputs
+surface with provider-private Pydantic DTOs; raw responses and SDK types never enter the domain.
+
+The OpenAI adapter validates configured scene-count bounds, contiguous sequences and narration
+segmentation. Joining segments and collapsing whitespace runs must exactly reproduce
+`Script.full_narration`; content is never silently repaired. Relative duration estimates are scaled
+with decimal arithmetic to the script's estimated total, producing a continuous provisional
+`scenes.json`. ADR 0008 remains authoritative: narration media duration is applied later by
+`SceneTimingReconciler` and persisted separately in `timed-scenes.json`.
+
+Channel YAML selects planner provider/model and pacing constraints. A CLI override wins at the
+composition root. Both local and OpenAI planners expose neutral provider/model/identifier metadata
+for the manifest. `AssetType.ANIMATION` remains semantic intent for future rendering, not generated
+video in the current static-asset pipeline.
+
 ## OpenAI narration adapter
 
 `NarrationGenerator` remains a provider-independent port. The composition root uses the selected

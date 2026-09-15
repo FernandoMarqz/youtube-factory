@@ -15,6 +15,8 @@ from youtube_factory.adapters.local import (
 )
 from youtube_factory.adapters.openai import (
     OpenAINarrationGenerator,
+    OpenAIScenePlanner,
+    OpenAIScenePlannerConfig,
     OpenAITTSConfig,
     OpenAIVisualAssetProvider,
     OpenAIVisualConfig,
@@ -32,7 +34,7 @@ from youtube_factory.application.services import (
     SceneTimingReconciler,
 )
 from youtube_factory.application.use_cases import CreateContentUseCase
-from youtube_factory.ports import NarrationGenerator, VisualAssetProvider
+from youtube_factory.ports import NarrationGenerator, ScenePlanner, VisualAssetProvider
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -49,6 +51,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--channel",
         default="engineering-es",
         help="Channel configuration id (default: engineering-es).",
+    )
+    create_content.add_argument(
+        "--scene-planner",
+        choices=("local", "openai"),
+        default=None,
+        help="Optional scene-planner override; otherwise the selected channel decides.",
     )
     create_content.add_argument(
         "--narration-provider",
@@ -83,7 +91,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             use_case = CreateContentUseCase(
                 research_provider=LocalResearchProvider(),
                 script_generator=LocalScriptGenerator(),
-                scene_planner=LocalScenePlanner(),
+                scene_planner=build_scene_planner(channel, args.scene_planner),
                 narration_generator=build_narration_generator(channel, args.narration_provider),
                 timing_reconciler=SceneTimingReconciler(),
                 channel_config=channel,
@@ -119,6 +127,32 @@ def build_narration_generator(
             )
         )
     raise ValueError(f"unsupported narration provider: {provider}")
+
+
+def build_scene_planner(
+    channel: ChannelConfig, scene_planner_override: str | None = None
+) -> ScenePlanner:
+    """Compose scene planning from channel settings with an optional CLI override."""
+    provider = scene_planner_override or channel.scene_planning.provider
+    if provider == "local":
+        return LocalScenePlanner()
+    if provider == "openai":
+        planning = channel.scene_planning
+        if planning.model is None:
+            raise ContentPipelineError("OpenAI channel scene-planning model is not configured")
+        return OpenAIScenePlanner(
+            OpenAIScenePlannerConfig(
+                api_key=get_openai_api_key("scene_planning"),
+                model=planning.model,
+                language=channel.language,
+                channel_id=channel.id,
+                min_scenes=planning.min_scenes,
+                max_scenes=planning.max_scenes,
+                target_scene_duration_seconds=planning.target_scene_duration_seconds,
+                visual_style=channel.visuals.style,
+            )
+        )
+    raise ContentPipelineError(f"unsupported scene planner: {provider}")
 
 
 def build_visual_asset_provider(
