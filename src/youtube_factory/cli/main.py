@@ -15,8 +15,12 @@ from youtube_factory.adapters.local import (
 )
 from youtube_factory.adapters.openai import (
     OpenAINarrationGenerator,
+    OpenAIResearchConfig,
+    OpenAIResearchProvider,
     OpenAIScenePlanner,
     OpenAIScenePlannerConfig,
+    OpenAIScriptConfig,
+    OpenAIScriptGenerator,
     OpenAITTSConfig,
     OpenAIVisualAssetProvider,
     OpenAIVisualConfig,
@@ -34,7 +38,13 @@ from youtube_factory.application.services import (
     SceneTimingReconciler,
 )
 from youtube_factory.application.use_cases import CreateContentUseCase
-from youtube_factory.ports import NarrationGenerator, ScenePlanner, VisualAssetProvider
+from youtube_factory.ports import (
+    NarrationGenerator,
+    ResearchProvider,
+    ScenePlanner,
+    ScriptGenerator,
+    VisualAssetProvider,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -51,6 +61,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--channel",
         default="engineering-es",
         help="Channel configuration id (default: engineering-es).",
+    )
+    create_content.add_argument(
+        "--research-provider",
+        choices=("local", "openai"),
+        default=None,
+        help="Optional research override; otherwise the selected channel decides.",
+    )
+    create_content.add_argument(
+        "--script-generator",
+        choices=("local", "openai"),
+        default=None,
+        help="Optional script-generator override; otherwise the selected channel decides.",
     )
     create_content.add_argument(
         "--scene-planner",
@@ -89,8 +111,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         try:
             channel = load_channel_config(args.channel)
             use_case = CreateContentUseCase(
-                research_provider=LocalResearchProvider(),
-                script_generator=LocalScriptGenerator(),
+                research_provider=build_research_provider(channel, args.research_provider),
+                script_generator=build_script_generator(channel, args.script_generator),
                 scene_planner=build_scene_planner(channel, args.scene_planner),
                 narration_generator=build_narration_generator(channel, args.narration_provider),
                 timing_reconciler=SceneTimingReconciler(),
@@ -105,6 +127,56 @@ def main(argv: Sequence[str] | None = None) -> None:
         except ContentPipelineError as error:
             raise SystemExit(f"error: {error}") from error
         print(result.project_directory)
+
+
+def build_research_provider(
+    channel: ChannelConfig, research_provider_override: str | None = None
+) -> ResearchProvider:
+    """Compose research from channel settings with an optional CLI override."""
+    provider = research_provider_override or channel.research.provider
+    if provider == "local":
+        return LocalResearchProvider()
+    if provider == "openai":
+        research = channel.research
+        if research.model is None:
+            raise ContentPipelineError("OpenAI channel research model is not configured")
+        return OpenAIResearchProvider(
+            OpenAIResearchConfig(
+                api_key=get_openai_api_key("research"),
+                model=research.model,
+                language=channel.language,
+                channel_id=channel.id,
+                max_sources=research.max_sources,
+            )
+        )
+    raise ContentPipelineError(f"unsupported research provider: {provider}")
+
+
+def build_script_generator(
+    channel: ChannelConfig, script_generator_override: str | None = None
+) -> ScriptGenerator:
+    """Compose script generation from channel settings with an optional CLI override."""
+    provider = script_generator_override or channel.script.provider
+    if provider == "local":
+        return LocalScriptGenerator()
+    if provider == "openai":
+        script = channel.script
+        if script.model is None:
+            raise ContentPipelineError("OpenAI channel script model is not configured")
+        content = channel.content
+        return OpenAIScriptGenerator(
+            OpenAIScriptConfig(
+                api_key=get_openai_api_key("script"),
+                model=script.model,
+                language=channel.language,
+                channel_id=channel.id,
+                niche=content.niche,
+                target_duration_seconds=content.target_duration_seconds,
+                min_duration_seconds=content.min_duration_seconds,
+                max_duration_seconds=content.max_duration_seconds,
+            )
+        )
+    raise ContentPipelineError(f"unsupported script generator: {provider}")
 
 
 def build_narration_generator(

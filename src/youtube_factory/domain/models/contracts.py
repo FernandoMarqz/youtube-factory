@@ -89,6 +89,22 @@ class ScenePlannerMetadata(DomainModel):
     identifier: NonEmptyText
 
 
+class ResearchProviderMetadata(DomainModel):
+    """Provider-neutral research identity retained in a project manifest."""
+
+    provider: NonEmptyText
+    model: NonEmptyText | None = None
+    identifier: NonEmptyText
+
+
+class ScriptGeneratorMetadata(DomainModel):
+    """Provider-neutral script-generator identity retained in a project manifest."""
+
+    provider: NonEmptyText
+    model: NonEmptyText | None = None
+    identifier: NonEmptyText
+
+
 class VisualAssetGeneratorMetadata(DomainModel):
     """Provider-neutral visual generation context retained in the manifest."""
 
@@ -106,8 +122,8 @@ class ContentManifest(DomainModel):
     topic: NonEmptyText
     topic_id: UUID
     artifacts: tuple[NonEmptyText, ...] = Field(min_length=1)
-    research_provider: NonEmptyText
-    script_generator: NonEmptyText
+    research_provider: ResearchProviderMetadata
+    script_generator: ScriptGeneratorMetadata
     scene_planner: ScenePlannerMetadata | None = None
     narration_generator: NarrationGeneratorMetadata | None = None
     timing_reconciliation_strategy: NonEmptyText | None = None

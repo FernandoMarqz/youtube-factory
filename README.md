@@ -82,11 +82,11 @@ data/projects/<project-id>/
 └── manifest.json
 ```
 
-Use `--output-dir <path>` to choose another root. The project identifier and JSON content are
-stable for the same input. The local research, script and scene-planning adapters are intentional
-deterministic fixtures: they validate the pipeline offline before they are replaced by AI-backed
-adapters. They support only the reference topic. No web search, HTTP API, LLM-backed planner,
-narration, media generation, renderer, database or publishing integration exists yet.
+Use `--output-dir <path>` to choose another root. The project identifier and local-provider JSON
+content are stable for the same input. The local research, script and scene-planning adapters remain
+intentional deterministic fixtures for the reference topic. OpenAI-backed implementations can now
+handle arbitrary topics while the local fixtures preserve offline regression coverage. Rendering,
+databases and publishing are not implemented yet.
 
 `scenes.json` is a deterministic audiovisual timeline. Each scene has a narration segment,
 continuous start/end/duration estimates, a separate visual instruction and purpose, an asset type,
@@ -173,10 +173,65 @@ python -m youtube_factory create-content `
   --visual-provider local-placeholder
 ```
 
-Only scene planning is expected to use paid API capacity in that command. The OpenAI planner itself
-supports arbitrary scripts, but `create-content` still uses fixture-like local research and script
-providers that accept only the reference topic. A command for a new topic such as bridge expansion
-joints will become executable after a future arbitrary-topic research/script milestone.
+Only scene planning is expected to use paid API capacity in that command.
+
+## Phase 4C: source-backed research and grounded scripts
+
+Research and script generation now each have local and OpenAI implementations behind their existing
+provider-neutral ports:
+
+```text
+Topic -> OpenAIResearchProvider -> ResearchResult
+ResearchResult -> OpenAIScriptGenerator -> Script
+```
+
+`OpenAIResearchProvider` uses the Responses API web-search tool and Structured Outputs. It requires
+at least one source, rejects duplicate or invalid URLs, and verifies every persisted URL against
+source evidence returned by the web-search call. It stores summary, facts, sources and uncertainties
+in `research.json`; raw pages and SDK responses are not persisted.
+
+`OpenAIScriptGenerator` receives that validated artifact and has no web tool. Its instructions allow
+only supplied research facts. Structured output contains hook, body, ending, hook type and selected
+fact indices. Python constructs `full_narration`, copies the referenced research facts into
+`Script.claims`, and estimates duration deterministically at 150 spoken words per minute. Scripts
+outside the channel's configured Short-duration bounds fail before downstream paid stages.
+
+Provider precedence for research, script, scene planning, narration and visuals is:
+
+```text
+explicit CLI override > selected channel YAML > no fallback
+```
+
+Preferred Phase 4C paid smoke test, using local narration and visuals:
+
+```powershell
+python -m youtube_factory create-content `
+  --channel engineering-es `
+  --topic "¿Por qué los puentes tienen juntas de dilatación?" `
+  --research-provider openai `
+  --script-generator openai `
+  --scene-planner openai `
+  --narration-provider local `
+  --visual-provider local-placeholder
+```
+
+This intentionally pays only for web-backed research, script generation and scene planning. A full
+AI command changes the final two providers to `openai`; it additionally incurs one TTS request and
+approximately one paid image request per generated scene. Paid commands are manual and never run by
+pytest.
+
+Full AI creative pipeline:
+
+```powershell
+python -m youtube_factory create-content `
+  --channel engineering-es `
+  --topic "¿Por qué los puentes tienen juntas de dilatación?" `
+  --research-provider openai `
+  --script-generator openai `
+  --scene-planner openai `
+  --narration-provider openai `
+  --visual-provider openai
+```
 
 ## Phase 3: narration and timing
 

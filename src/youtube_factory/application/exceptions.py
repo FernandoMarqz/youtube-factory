@@ -13,6 +13,26 @@ class ProviderContractError(ContentPipelineError):
     """Raised when a provider returns invalid or inconsistent data."""
 
 
+class ProviderConfigurationError(ContentPipelineError):
+    """Raised when a selected external provider lacks required configuration."""
+
+
+class ResearchError(ContentPipelineError):
+    """Raised when source-backed research cannot be completed."""
+
+
+class ResearchValidationError(ResearchError):
+    """Raised when external research is empty, ungrounded or structurally invalid."""
+
+
+class ScriptGenerationError(ContentPipelineError):
+    """Raised when a script provider cannot generate a Short script."""
+
+
+class ScriptValidationError(ScriptGenerationError):
+    """Raised when a generated script violates editorial or contract constraints."""
+
+
 class ArtifactPersistenceError(ContentPipelineError):
     """Raised when project artifacts cannot be persisted."""
 

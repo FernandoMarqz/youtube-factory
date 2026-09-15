@@ -10,6 +10,8 @@ class LocalScriptGenerator:
     """Produces one stable, short-form Spanish script for the reference topic."""
 
     identifier = "local-script-v1"
+    provider = "local"
+    model: str | None = None
 
     def generate(self, topic: Topic, research: ResearchResult) -> Script:
         """Generate the deterministic script using the supplied research contract."""

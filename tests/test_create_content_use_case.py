@@ -45,6 +45,8 @@ class RecordingResearchProvider:
     """Port test double that records the supplied topic."""
 
     identifier = "recording-research"
+    provider = "local"
+    model: str | None = None
 
     def __init__(self) -> None:
         self.invocations: list[Topic] = []
@@ -59,6 +61,8 @@ class RecordingScriptGenerator:
     """Port test double that records the supplied domain values."""
 
     identifier = "recording-script"
+    provider = "local"
+    model: str | None = None
 
     def __init__(self) -> None:
         self.invocations: list[tuple[Topic, ResearchResult]] = []
@@ -146,6 +150,8 @@ class FailingResearchProvider:
     """Research port that models an unsupported deterministic topic."""
 
     identifier = "failing-research"
+    provider = "local"
+    model: str | None = None
 
     def research(self, topic: Topic) -> ResearchResult:
         raise UnsupportedTopicError("research is unavailable")
@@ -155,6 +161,8 @@ class FailingScriptGenerator:
     """Script port that models an unsupported deterministic topic."""
 
     identifier = "failing-script"
+    provider = "local"
+    model: str | None = None
 
     def generate(self, topic: Topic, research: ResearchResult) -> Script:
         raise UnsupportedTopicError("script generation is unavailable")

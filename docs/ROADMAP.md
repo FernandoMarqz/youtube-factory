@@ -134,6 +134,14 @@ output, strict narration reconstruction and deterministic estimated-duration nor
 local fixture planner remains the offline default, and real narration remains authoritative for
 `TimedScenePlan`.
 
+### Phase 4C extension
+
+Source-backed arbitrary-topic research and grounded script generation are available through
+`OpenAIResearchProvider` and `OpenAIScriptGenerator`. Research uses Responses API web search,
+persists verified source metadata and remains separate from script generation. Scripts consume only
+the validated `ResearchResult`; full narration and duration are derived deterministically. Local
+reference fixtures remain the offline defaults.
+
 ---
 
 ## Phase 5 — Renderer

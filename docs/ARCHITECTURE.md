@@ -102,10 +102,9 @@ The domain does not import ports, adapters, YAML, or environment configuration.
 Current ports are `ResearchProvider`, `ScriptGenerator`, `ScenePlanner`, and
 `NarrationGenerator`, and `ProjectArtifactStore`. Their local implementations are
 `LocalResearchProvider`, `LocalScriptGenerator`, `LocalScenePlanner`, `LocalNarrationGenerator`,
-and `FileSystemArtifactStore`. The first four are deterministic, fixture-like adapters for the
-reference topic; they make contracts, artifact
-persistence, and reproducibility testable before they are replaced by AI-backed or source-backed
-implementations.
+and `FileSystemArtifactStore`. They preserve deterministic fixture behavior for offline regression
+testing. OpenAI adapters implement dynamic research, script and scene generation behind the same
+ports without changing orchestration or domain contracts.
 
 Running the local slice creates:
 
@@ -199,6 +198,26 @@ Channel YAML selects planner provider/model and pacing constraints. A CLI overri
 composition root. Both local and OpenAI planners expose neutral provider/model/identifier metadata
 for the manifest. `AssetType.ANIMATION` remains semantic intent for future rendering, not generated
 video in the current static-asset pipeline.
+
+## Source-backed research and grounded script generation
+
+`ResearchProvider` and `ScriptGenerator` remain separate application boundaries. Their local
+implementations retain the reference-topic fixtures. `OpenAIResearchProvider` uses Responses API
+web search plus a provider-private Structured Output DTO. URLs in its structured result are accepted
+only when the web-search call returned matching source evidence; source titles from that evidence
+take precedence over generated titles. Pydantic then maps the concise result into `ResearchResult`.
+
+`OpenAIScriptGenerator` receives `Topic` and the validated `ResearchResult`. It receives no web tool
+and cannot trigger research. Its DTO contains semantic script components and one-based indices into
+`ResearchResult.key_facts`; `Script.claims` therefore contains exact persisted facts rather than
+new provider prose. The request also includes summary, uncertainties and source context, with a
+strict instruction not to add facts. Sophisticated semantic entailment remains future work.
+
+`full_narration` is assembled from hook, body and ending by the adapter, avoiding duplicated model
+fields. A small application service estimates duration at 150 spoken words per minute and enforces
+the channel's minimum and maximum. The channel selects research/script providers, models and source
+limit; explicit CLI overrides win at composition time and no adapter reads YAML or environment
+variables.
 
 ## OpenAI narration adapter
 

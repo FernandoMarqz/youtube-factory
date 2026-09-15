@@ -9,6 +9,8 @@ class ScriptGenerator(Protocol):
     """Produces a validated Short script from researched material."""
 
     identifier: str
+    provider: str
+    model: str | None
 
     def generate(self, topic: Topic, research: ResearchResult) -> Script:
         """Generate a script for the supplied researched topic."""

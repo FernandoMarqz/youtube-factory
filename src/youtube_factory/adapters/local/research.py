@@ -15,6 +15,8 @@ class LocalResearchProvider:
     """Returns curated local research only for the reference topic."""
 
     identifier = "local-research-v1"
+    provider = "local"
+    model: str | None = None
 
     def research(self, topic: Topic) -> ResearchResult:
         """Return the stable Phase 1 research fixture."""

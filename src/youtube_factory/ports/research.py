@@ -9,6 +9,8 @@ class ResearchProvider(Protocol):
     """Produces a validated research result for a topic."""
 
     identifier: str
+    provider: str
+    model: str | None
 
     def research(self, topic: Topic) -> ResearchResult:
         """Research the supplied topic."""

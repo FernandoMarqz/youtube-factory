@@ -5,12 +5,27 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 from pytest import MonkeyPatch
 
-from youtube_factory.adapters.local import LocalPlaceholderVisualAssetProvider, LocalScenePlanner
-from youtube_factory.adapters.openai import OpenAIScenePlanner
+from youtube_factory.adapters.local import (
+    LocalPlaceholderVisualAssetProvider,
+    LocalResearchProvider,
+    LocalScenePlanner,
+    LocalScriptGenerator,
+)
+from youtube_factory.adapters.openai import (
+    OpenAIResearchProvider,
+    OpenAIScenePlanner,
+    OpenAIScriptGenerator,
+)
 from youtube_factory.application.config import load_channel_config
-from youtube_factory.cli.main import build_scene_planner, build_visual_asset_provider
+from youtube_factory.cli.main import (
+    build_research_provider,
+    build_scene_planner,
+    build_script_generator,
+    build_visual_asset_provider,
+)
 from youtube_factory.domain.models import (
     ContentManifest,
     Narration,
@@ -91,6 +106,12 @@ def test_create_content_writes_parseable_artifacts(tmp_path: Path) -> None:
     )
     assert manifest.channel_id == "engineering-es"
     assert manifest.pipeline_version == "content-pipeline-v1"
+    assert manifest.research_provider.provider == "local"
+    assert manifest.research_provider.model is None
+    assert manifest.research_provider.identifier == "local-research-v1"
+    assert manifest.script_generator.provider == "local"
+    assert manifest.script_generator.model is None
+    assert manifest.script_generator.identifier == "local-script-v1"
     assert manifest.narration_generator is not None
     assert manifest.narration_generator.provider == "local"
     assert manifest.narration_generator.duration_seconds == narration.duration_seconds
@@ -149,6 +170,83 @@ def test_scene_planner_defaults_to_channel_local_without_openai_key(
 
     assert isinstance(build_scene_planner(channel), LocalScenePlanner)
     assert isinstance(build_scene_planner(channel, "local"), LocalScenePlanner)
+
+
+def test_research_and_script_default_to_channel_local_without_openai_key(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    channel = load_channel_config("engineering-es")
+
+    assert isinstance(build_research_provider(channel), LocalResearchProvider)
+    assert isinstance(build_script_generator(channel), LocalScriptGenerator)
+
+
+def test_openai_research_and_script_overrides_use_channel_models(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    channel = load_channel_config("engineering-es")
+
+    research = build_research_provider(channel, "openai")
+    script = build_script_generator(channel, "openai")
+
+    assert isinstance(research, OpenAIResearchProvider)
+    assert research.model == "gpt-5.6-luna"
+    assert isinstance(script, OpenAIScriptGenerator)
+    assert script.model == "gpt-5.6-luna"
+
+
+def test_explicit_local_content_overrides_win_over_openai_channel(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    channel = load_channel_config("engineering-es")
+    openai_channel = channel.model_copy(
+        update={
+            "research": channel.research.model_copy(update={"provider": "openai"}),
+            "script": channel.script.model_copy(update={"provider": "openai"}),
+        }
+    )
+
+    assert isinstance(build_research_provider(openai_channel, "local"), LocalResearchProvider)
+    assert isinstance(build_script_generator(openai_channel, "local"), LocalScriptGenerator)
+
+
+@pytest.mark.parametrize(
+    ("flag", "message"),
+    [
+        ("--research-provider", "research provider is openai"),
+        ("--script-generator", "script generator is openai"),
+    ],
+)
+def test_openai_content_provider_override_fails_cleanly_without_key(
+    tmp_path: Path, flag: str, message: str
+) -> None:
+    environment = {**os.environ, "OPENAI_API_KEY": ""}
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "youtube_factory",
+            "create-content",
+            "--topic",
+            "Un tema arbitrario",
+            flag,
+            "openai",
+            "--narration-provider",
+            "local",
+            "--output-dir",
+            str(tmp_path),
+        ],
+        check=False,
+        capture_output=True,
+        env=environment,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert message in result.stderr
 
 
 def test_openai_scene_planner_override_uses_channel_model(monkeypatch: MonkeyPatch) -> None:

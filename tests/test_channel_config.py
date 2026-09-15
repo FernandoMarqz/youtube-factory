@@ -15,6 +15,11 @@ def test_engineering_channel_loads_with_expected_typed_values() -> None:
     assert config.id == "engineering-es"
     assert config.language == "es-ES"
     assert config.content.target_duration_seconds == 35
+    assert config.research.provider == "local"
+    assert config.research.model == "gpt-5.6-luna"
+    assert config.research.max_sources == 5
+    assert config.script.provider == "local"
+    assert config.script.model == "gpt-5.6-luna"
     assert config.scene_planning.provider == "local"
     assert config.scene_planning.model == "gpt-5.6-luna"
     assert config.narration.provider == "openai"
@@ -46,6 +51,13 @@ content:
   target_duration_seconds: 35
   min_duration_seconds: 25
   max_duration_seconds: 45
+research:
+  provider: local
+  model: gpt-5.6-luna
+  max_sources: 5
+script:
+  provider: local
+  model: gpt-5.6-luna
 scene_planning:
   provider: local
   model: gpt-5.6-luna
@@ -170,10 +182,79 @@ def test_openai_scene_planning_requires_model(tmp_path: Path) -> None:
 
 
 def test_local_scene_planning_allows_null_model(tmp_path: Path) -> None:
-    yaml_content = valid_channel_yaml().replace("  model: gpt-5.6-luna\n", "", 1)
+    yaml_content = valid_channel_yaml().replace(
+        "scene_planning:\n  provider: local\n  model: gpt-5.6-luna",
+        "scene_planning:\n  provider: local",
+    )
     channels_directory = write_channel(tmp_path, yaml_content)
 
     config = load_channel_config("test-channel", channels_directory)
 
     assert config.scene_planning.provider == "local"
     assert config.scene_planning.model is None
+
+
+@pytest.mark.parametrize(
+    "replacement",
+    [
+        "research:\n  provider: unsupported\n  model: gpt-5.6-luna\n  max_sources: 5",
+        "research:\n  provider: local\n  model: gpt-5.6-luna\n  max_sources: 0",
+    ],
+)
+def test_invalid_research_settings_fail(tmp_path: Path, replacement: str) -> None:
+    original = "research:\n  provider: local\n  model: gpt-5.6-luna\n  max_sources: 5"
+    channels_directory = write_channel(
+        tmp_path, valid_channel_yaml().replace(original, replacement)
+    )
+
+    with pytest.raises(ChannelConfigurationError, match="invalid channel"):
+        load_channel_config("test-channel", channels_directory)
+
+
+def test_openai_research_requires_model(tmp_path: Path) -> None:
+    yaml_content = valid_channel_yaml().replace(
+        "research:\n  provider: local\n  model: gpt-5.6-luna",
+        "research:\n  provider: openai",
+    )
+    channels_directory = write_channel(tmp_path, yaml_content)
+
+    with pytest.raises(ChannelConfigurationError, match="invalid channel"):
+        load_channel_config("test-channel", channels_directory)
+
+
+def test_openai_script_requires_model(tmp_path: Path) -> None:
+    yaml_content = valid_channel_yaml().replace(
+        "script:\n  provider: local\n  model: gpt-5.6-luna",
+        "script:\n  provider: openai",
+    )
+    channels_directory = write_channel(tmp_path, yaml_content)
+
+    with pytest.raises(ChannelConfigurationError, match="invalid channel"):
+        load_channel_config("test-channel", channels_directory)
+
+
+def test_unsupported_script_provider_fails(tmp_path: Path) -> None:
+    yaml_content = valid_channel_yaml().replace(
+        "script:\n  provider: local", "script:\n  provider: unsupported"
+    )
+    channels_directory = write_channel(tmp_path, yaml_content)
+
+    with pytest.raises(ChannelConfigurationError, match="invalid channel"):
+        load_channel_config("test-channel", channels_directory)
+
+
+def test_local_research_and_script_allow_null_models(tmp_path: Path) -> None:
+    yaml_content = valid_channel_yaml().replace(
+        "research:\n  provider: local\n  model: gpt-5.6-luna",
+        "research:\n  provider: local",
+    )
+    yaml_content = yaml_content.replace(
+        "script:\n  provider: local\n  model: gpt-5.6-luna",
+        "script:\n  provider: local",
+    )
+    channels_directory = write_channel(tmp_path, yaml_content)
+
+    config = load_channel_config("test-channel", channels_directory)
+
+    assert config.research.model is None
+    assert config.script.model is None

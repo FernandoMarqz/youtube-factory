@@ -42,6 +42,12 @@ def channel_config(provider: str = "openai") -> ChannelConfig:
                 "min_duration_seconds": 25,
                 "max_duration_seconds": 45,
             },
+            "research": {
+                "provider": "local",
+                "model": "gpt-5.6-luna",
+                "max_sources": 5,
+            },
+            "script": {"provider": "local", "model": "gpt-5.6-luna"},
             "scene_planning": {
                 "provider": "local",
                 "model": "gpt-5.6-luna",

@@ -11,7 +11,9 @@ from youtube_factory.application.config.models import (
     ContentConfig,
     NarrationConfig,
     PublishingConfig,
+    ResearchConfig,
     ScenePlanningConfig,
+    ScriptConfig,
     VisualConfig,
 )
 
@@ -20,7 +22,9 @@ __all__ = [
     "ContentConfig",
     "NarrationConfig",
     "PublishingConfig",
+    "ResearchConfig",
     "ScenePlanningConfig",
+    "ScriptConfig",
     "VisualConfig",
     "get_openai_api_key",
     "get_output_directory",

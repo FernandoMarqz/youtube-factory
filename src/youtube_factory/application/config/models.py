@@ -53,6 +53,35 @@ class NarrationConfig(ChannelConfigModel):
         return self
 
 
+class ResearchConfig(ChannelConfigModel):
+    """Provider-neutral source-backed research preferences for one channel."""
+
+    provider: Literal["local", "openai"]
+    model: NonEmptyText | None = None
+    max_sources: PositiveInt
+
+    @model_validator(mode="after")
+    def has_openai_requirements(self) -> "ResearchConfig":
+        """Require an explicit model when external OpenAI research is selected."""
+        if self.provider == "openai" and not self.model:
+            raise ValueError("OpenAI research requires a model")
+        return self
+
+
+class ScriptConfig(ChannelConfigModel):
+    """Provider-neutral script-generation preferences for one channel."""
+
+    provider: Literal["local", "openai"]
+    model: NonEmptyText | None = None
+
+    @model_validator(mode="after")
+    def has_openai_requirements(self) -> "ScriptConfig":
+        """Require an explicit model when OpenAI script generation is selected."""
+        if self.provider == "openai" and not self.model:
+            raise ValueError("OpenAI script generation requires a model")
+        return self
+
+
 class ScenePlanningConfig(ChannelConfigModel):
     """Provider-neutral semantic scene-planning preferences for one channel."""
 
@@ -102,6 +131,8 @@ class ChannelConfig(ChannelConfigModel):
     id: Annotated[str, Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")]
     language: NonEmptyText
     content: ContentConfig
+    research: ResearchConfig
+    script: ScriptConfig
     scene_planning: ScenePlanningConfig
     narration: NarrationConfig
     visuals: VisualConfig
