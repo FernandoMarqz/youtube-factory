@@ -167,12 +167,17 @@ overlays are deferred.
 
 ## Phase 6 - Subtitle And Caption Foundation
 
-Align captions with narration and render readable Shorts-style text over the Phase 5 video.
-Keep human review before publication.
+Status: complete. Real WAV word timestamps from OpenAI (`whisper-1` verbose JSON) are reconciled
+against canonical narration; local synthetic alignment supports offline work. Deterministic
+caption chunks, `captions.json`, ASS styling and FFmpeg/libass burn-in are implemented.
+`caption-project` aligns saved narration only; `render-project` restyles and rerenders saved media.
+Human review remains required before any future publication.
+
+Next: Phase 6B, optional per-word highlighting/emphasis driven by existing word alignment.
 
 ---
 
-## Phase 6 — Persistence
+## Later Phase - Persistence
 
 ### Goal
 

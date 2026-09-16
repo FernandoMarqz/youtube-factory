@@ -10,13 +10,17 @@ publisher or n8n workflow yet.
 ```text
 Topic -> ResearchResult -> Script -> ScenePlan -> Narration + narration.wav
       -> TimedScenePlan -> VisualPromptPlan -> VisualAssetManifest
-      -> Renderer -> RenderArtifact
+      -> CaptionAlignmentProvider -> WordAlignment -> CaptionPlanner -> CaptionPlan
+      -> ASS -> Renderer -> RenderArtifact
 ```
 
 `CreateContentUseCase` orchestrates the creative stages and persists their artifacts through
 `ProjectArtifactStore`. The CLI then invokes `RenderProjectUseCase`, which loads those persisted
 media artifacts through the same store and calls a provider-neutral `Renderer`. `render-project`
 invokes only the latter use case, so existing paid inputs are reusable without regeneration.
+`CaptionProjectUseCase` separately loads persisted WAV and canonical narration text, aligns and
+persists captions without any creative-stage call. The CLI runs it before rendering when captions
+are enabled. `render-project` can restyle persisted semantic cues without realignment.
 
 ## Provider Boundaries
 
@@ -29,6 +33,7 @@ invokes only the latter use case, so existing paid inputs are reusable without r
 | `VisualAssetProvider` | Local placeholder PNG, OpenAI image generation |
 | `ProjectArtifactStore` | Local filesystem |
 | `Renderer` | `FFmpegRenderer` |
+| `CaptionAlignmentProvider` | Local synthetic alignment, OpenAI word-timestamp transcription |
 
 The OpenAI adapters validate provider-private structured results before mapping them to domain
 contracts. Research persists URLs backed by web-search evidence. Script generation consumes only
@@ -37,6 +42,12 @@ If the deterministic estimate falls outside the channel's Short bounds, the Open
 makes one grounded rewrite request and recalculates. It persists only the accepted script.
 The semantic AI scene plan reconstructs the full narration and normalizes provisional pacing to
 the script's estimated duration.
+
+Caption text comes only from `Narration.narration_text`; transcription is timing evidence. The
+OpenAI adapter uses `whisper-1` verbose JSON word timestamps, then normalized character sequence
+alignment to reconcile punctuation, case, quotes and accents. At least 90% of canonical tokens
+must match. Local alignment is marked synthetic. A deterministic planner groups aligned words;
+ASS generation is derived from the semantic caption plan and channel style.
 
 ## Timing And Media
 
@@ -53,7 +64,11 @@ prompt hash. `ANIMATION` remains editorial intent; the current provider still yi
 with a 600-second timeout. Its filter graph holds each PNG for the frame interval obtained by
 rounding timed start/end boundaries to the configured FPS. It scales each image with preserved
 aspect ratio to cover the output, center-crops excess, and concatenates scenes with hard cuts.
-The persisted WAV is encoded as AAC alongside H.264 video in an MP4. A temporary `.short-part.mp4`
+When a caption plan exists and captions are enabled, FFmpeg appends a libass filter after scene
+concatenation. The ASS path is fixed and project-relative, and FFmpeg runs with the project as its
+working directory to avoid Windows drive-colon and space escaping. Caption burn-in leaves audio
+mapping unchanged. The persisted WAV is encoded as AAC alongside H.264 video in an MP4. A
+temporary `.short-part.mp4`
 under the project's `render/` directory is replaced with `short.mp4` only after ffprobe validates
 the file. No scene clips or OS-global temporary files are needed.
 
@@ -79,6 +94,9 @@ data/projects/<project-id>/
   visual-prompts.json
   visual-assets.json
   assets/scene-XX.png
+  word-alignment.json
+  captions.json
+  captions/captions.ass
   render.json
   render/short.mp4
   manifest.json
@@ -87,4 +105,5 @@ data/projects/<project-id>/
 The artifact store validates persisted WAV, scene count/sequence and PNG content before passing
 render inputs to the renderer. It writes `render.json` and extends `manifest.json` only after a
 successful render. Source JSON and PNG/WAV artifacts remain inspectable for retry and review.
-Subtitles, music, motion, publishing and analytics are later work.
+Caption chunks are burned in; per-word animation, music, motion, publishing and analytics are
+later work.

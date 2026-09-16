@@ -21,6 +21,7 @@ class RenderInputs:
     narration: Narration
     timed_scene_plan: TimedScenePlan
     visual_assets: VisualAssetManifest
+    caption_ass_path: str | None = None
 
 
 class Renderer(Protocol):

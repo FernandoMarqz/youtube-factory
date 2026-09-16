@@ -9,12 +9,16 @@ from pydantic import BaseModel
 
 from youtube_factory.application.exceptions import (
     ArtifactPersistenceError,
+    CaptionArtifactError,
     InvalidAudioArtifactError,
     RenderValidationError,
     VisualAssetValidationError,
 )
 from youtube_factory.application.services import validate_png, validate_wav_narration
 from youtube_factory.domain.models import (
+    CaptionAlignmentMetadata,
+    CaptionPlan,
+    CaptionPlannerMetadata,
     ContentManifest,
     Narration,
     RenderArtifact,
@@ -26,6 +30,7 @@ from youtube_factory.domain.models import (
     Topic,
     VisualAssetManifest,
     VisualPromptPlan,
+    WordAlignment,
 )
 from youtube_factory.ports import GeneratedVisualAsset
 from youtube_factory.ports.renderer import RenderInputs
@@ -143,6 +148,80 @@ class FileSystemArtifactStore:
             self._write_model(directory / "manifest.json", updated)
         except OSError as error:
             raise ArtifactPersistenceError("could not persist render metadata") from error
+
+    def load_caption_audio(self, project_id: str) -> tuple[Narration, bytes]:
+        directory = self._project_directory(project_id)
+        try:
+            narration = Narration.model_validate_json(
+                (directory / "narration.json").read_text("utf-8")
+            )
+            audio = self._resolve_project_path(directory, narration.file_path).read_bytes()
+            validate_wav_narration(narration, audio)
+            return narration, audio
+        except (OSError, ValueError, InvalidAudioArtifactError) as error:
+            raise CaptionArtifactError(f"missing or invalid narration WAV: {error}") from error
+
+    def save_captions(
+        self,
+        project_id: str,
+        alignment: WordAlignment,
+        plan: CaptionPlan,
+        ass_text: str,
+        identifier: str,
+        planner_identifier: str,
+    ) -> None:
+        directory = self._project_directory(project_id)
+        try:
+            manifest = ContentManifest.model_validate_json(
+                (directory / "manifest.json").read_text("utf-8")
+            )
+            if alignment.topic_id != manifest.topic_id or plan.topic_id != manifest.topic_id:
+                raise CaptionArtifactError("caption artifacts belong to a different topic")
+            self._write_model(directory / "word-alignment.json", alignment)
+            self._write_model(directory / "captions.json", plan)
+            self.save_caption_ass(project_id, ass_text)
+            updated = manifest.model_copy(
+                update={
+                    "artifacts": tuple(
+                        dict.fromkeys(
+                            (
+                                *manifest.artifacts,
+                                "word-alignment.json",
+                                "captions.json",
+                                "captions/captions.ass",
+                            )
+                        )
+                    ),
+                    "caption_alignment": CaptionAlignmentMetadata(
+                        provider=alignment.provider, model=alignment.model, identifier=identifier
+                    ),
+                    "caption_planner": CaptionPlannerMetadata(
+                        identifier=planner_identifier, cue_count=len(plan.cues)
+                    ),
+                }
+            )
+            self._write_model(directory / "manifest.json", updated)
+        except OSError as error:
+            raise CaptionArtifactError("could not persist caption artifacts") from error
+
+    def load_caption_plan(self, project_id: str) -> CaptionPlan | None:
+        directory = self._project_directory(project_id)
+        path = directory / "captions.json"
+        if not path.exists():
+            return None
+        try:
+            return CaptionPlan.model_validate_json(path.read_text("utf-8"))
+        except (OSError, ValueError) as error:
+            raise CaptionArtifactError(f"invalid caption plan: {error}") from error
+
+    def save_caption_ass(self, project_id: str, ass_text: str) -> None:
+        directory = self._project_directory(project_id)
+        try:
+            path = directory / "captions" / "captions.ass"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(ass_text, encoding="utf-8")
+        except OSError as error:
+            raise CaptionArtifactError("could not write ASS captions") from error
 
     @staticmethod
     def _resolve_project_path(directory: Path, relative: str) -> Path:

@@ -8,8 +8,10 @@ pytest, ruff and mypy are the current baseline. The architecture is a modular mo
 domain contracts, application use cases/services, provider ports, infrastructure adapters and a
 CLI composition root. PostgreSQL, FastAPI, n8n, publishing and analytics are deferred.
 
-Phase 5 is implemented and verified with a real MP4. FFmpeg 9.0.1 was already installed on the
-Phase 5 development machine through winget, but its bin directory was missing from the shell's
+Phase 6 adds canonical-text captions, local synthetic and OpenAI acoustic word alignment,
+deterministic cue planning and FFmpeg/libass burn-in. Phase 5 was verified with a real MP4. FFmpeg
+9.0.1 was already installed on the development machine through winget, but its bin directory was
+missing from the shell's
 PATH. A temporary PATH addition allowed the full offline render and test suite to pass. No
 machine-specific FFmpeg path is stored in project code or channel configuration.
 
@@ -18,7 +20,8 @@ machine-specific FFmpeg path is stored in project code or channel configuration.
 ```text
 Topic -> ResearchResult -> Script -> ScenePlan -> Narration + WAV
       -> TimedScenePlan -> VisualPromptPlan -> VisualAssetManifest
-      -> Renderer -> RenderArtifact
+      -> CaptionAlignmentProvider -> WordAlignment -> CaptionPlanner -> CaptionPlan
+      -> ASS -> Renderer -> RenderArtifact
 ```
 
 `ResearchProvider`, `ScriptGenerator`, `ScenePlanner`, `NarrationGenerator`, and
@@ -26,7 +29,8 @@ Topic -> ResearchResult -> Script -> ScenePlan -> Narration + WAV
 scene planning are reference-topic fixtures. Local narration is silent mono PCM WAV for offline
 timing tests; OpenAI TTS output is normalized to mono 16-bit PCM WAV before persistence. Local
 visuals are deterministic PNG cards; OpenAI visuals are real generated PNGs. `Renderer` currently
-has `FFmpegRenderer`. `ProjectArtifactStore` has a filesystem adapter.
+has `FFmpegRenderer`. `CaptionAlignmentProvider` has local synthetic and OpenAI (`whisper-1`)
+adapters. `ProjectArtifactStore` has a filesystem adapter.
 
 OpenAI research uses web search and only persists URLs present in tool source evidence. Script
 generation consumes validated research without its own search; it references exact research facts,
@@ -52,13 +56,15 @@ hard cuts. Images scale proportionally to cover 1080x1920 and are center-cropped
 modification. Output is 30 fps H.264/AAC/yuv420p MP4 according to typed channel configuration.
 `ffprobe` checks streams, codecs, size, FPS and duration within two frames of the timed narration.
 FFmpeg executables are discovered through PATH, with no bundled binary or hardcoded machine path.
-No subtitles, music, motion or publishing are implemented.
+ASS caption chunks can be burned in after scene concatenation without changing audio mapping.
+No music, motion, per-word highlighting or publishing are implemented.
 
 ## Configuration And Artifacts
 
 `.env` contains only secrets and machine-local output root. Version-controlled
 `config/channels/engineering-es.yaml` has typed immutable research, script, scene planning,
-narration, visuals, render and publishing sections. CLI override wins over channel settings; there
+narration, visuals, render, captions and publishing sections. CLI override wins over channel
+settings; there
 is no implicit fallback. The channel defaults to local research/script/planning/visuals, OpenAI
 narration, and FFmpeg rendering. Use the local narration override for an offline run.
 
@@ -66,10 +72,27 @@ Each project is under `data/projects/<project-id>/` by default, unless `.env` or
 overrides the root. It contains `topic.json`,
 `research.json`, `script.json`, `scenes.json`, `narration.json`, `narration.wav`,
 `timed-scenes.json`, `visual-prompts.json`, `visual-assets.json`, `assets/scene-XX.png`,
-`render.json`, `render/short.mp4` and `manifest.json`. The manifest inventories artifacts and
-provider identities, including the renderer. Intermediate files are product artifacts, not temp
+`word-alignment.json`, `captions.json`, `captions/captions.ass`, `render.json`, `render/short.mp4`
+and `manifest.json`. The manifest inventories artifacts and provider identities, including the
+renderer. Intermediate files are product artifacts, not temp
 files. The render-only use case validates stored media before rendering; it makes no upstream
 provider calls.
+
+Caption text comes from persisted `narration.narration_text`; transcription supplies only timing
+from the actual WAV. OpenAI uses the documented Python `audio.transcriptions.create` with
+`whisper-1`, `verbose_json`, word granularity and a Spanish language hint. Ordered normalized
+matching tolerates punctuation, case and accents while preserving canonical display text. Below
+90% matched canonical tokens, alignment fails. Local timing is explicitly synthetic. The OpenAI
+adapter repairs isolated zero-length word intervals using no more than 20 ms of neighboring time;
+fully degenerate and non-monotonic responses still fail. The planner
+groups roughly 2-5 words with punctuation/duration limits and at most two lines, checking the
+actual line break as it groups. ASS uses bold white Arial 64, dark outline, small shadow and
+450px bottom margin. The fixed relative libass
+path is resolved from the project working directory to avoid Windows filter escaping.
+The Phase 6 offline CLI smoke test produced a captioned 1080x1920, 30 fps H.264/AAC/yuv420p
+MP4 at 36.733333 seconds. A frame was visually checked for readable two-line safe-area text.
+With FFmpeg on PATH, all 184 tests passed; ruff, mypy and `git diff --check` passed. No paid
+caption alignment call was made during implementation.
 
 ## Commands
 
@@ -78,7 +101,12 @@ python -m youtube_factory create-content `
   --channel engineering-es `
   --topic "¿Por qué las tapas de alcantarilla son redondas?" `
   --research-provider local --script-generator local --scene-planner local `
-  --narration-provider local --visual-provider local-placeholder --renderer ffmpeg
+  --narration-provider local --visual-provider local-placeholder `
+  --caption-alignment local --renderer ffmpeg
+
+python -m youtube_factory caption-project `
+  --project-id <project-id> --channel engineering-es `
+  --caption-alignment openai --output-dir output
 
 python -m youtube_factory render-project `
   --project-id <project-id> --channel engineering-es --renderer ffmpeg
@@ -90,8 +118,10 @@ python -m mypy src
 git diff --check
 ```
 
-Both commands accept `--output-dir <path>`. `render-project` is the way to render existing paid
-WAV/images without repeating OpenAI calls. The Phase 5 offline run produced
+All commands accept `--output-dir <path>`. `caption-project` aligns saved narration without
+regenerating creative assets. `render-project` restyles persisted `captions.json` and renders
+existing paid WAV/images without repeating OpenAI calls. Projects without captions still render
+as Phase 5. The Phase 5 offline run produced
 `output/2be33118-f60f-5d27-afcb-c9217dad79f5/render/short.mp4`: 1080x1920, 30 fps, H.264,
 AAC, yuv420p, 36.733333 seconds and 128,952 bytes. The local WAV lasts 36.72 seconds; its audio
 is intentionally silent. `render.json` and `manifest.json` were verified, and `render-project`
@@ -99,5 +129,6 @@ successfully rerendered the same saved inputs.
 
 ## Next Milestone
 
-Phase 6: align captions with narration and render readable Shorts-style subtitles over the Phase 5
-video. Keep human review before any publication work.
+Phase 6B: optional per-word caption highlighting/emphasis driven by existing word alignment,
+without changing canonical text or timing architecture. Human review remains required before
+publication.

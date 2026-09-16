@@ -99,3 +99,19 @@ class RendererUnavailableError(RenderError):
 
 class RenderValidationError(RenderError):
     """Raised when render inputs or output media fail validation."""
+
+
+class CaptionConfigurationError(ContentPipelineError):
+    """Raised when caption provider settings are incomplete."""
+
+
+class CaptionAlignmentError(ContentPipelineError):
+    """Raised when acoustic word timing cannot be reconciled with narration."""
+
+
+class CaptionPlanningError(ContentPipelineError):
+    """Raised when aligned words cannot form readable caption cues."""
+
+
+class CaptionArtifactError(ContentPipelineError):
+    """Raised when caption artifacts are missing or invalid."""

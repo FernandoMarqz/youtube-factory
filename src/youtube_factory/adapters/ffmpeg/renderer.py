@@ -38,12 +38,16 @@ class FFmpegRenderer:
         """Encode the prepared scene images and WAV, then inspect the final MP4."""
         ffmpeg = self._find_executable("ffmpeg")
         ffprobe = self._find_executable("ffprobe")
-        output = inputs.project_directory / RENDER_PATH
+        if inputs.caption_ass_path is not None:
+            ass = inputs.project_directory / inputs.caption_ass_path
+            if inputs.caption_ass_path != "captions/captions.ass" or not ass.is_file():
+                raise RenderValidationError("caption ASS input is missing or invalid")
+        output = inputs.project_directory.resolve() / RENDER_PATH
         output.parent.mkdir(parents=True, exist_ok=True)
         temporary = output.with_name(".short-part.mp4")
         command = self.build_command(ffmpeg, inputs, config, temporary)
         try:
-            self._run(command, "FFmpeg")
+            self._run(command, "FFmpeg", cwd=inputs.project_directory)
             artifact = self._probe(ffprobe, temporary, inputs, config)
             temporary.replace(output)
             return artifact
@@ -76,7 +80,7 @@ class FFmpegRenderer:
         ):
             if scene.sequence != asset.scene_sequence:
                 raise RenderValidationError("scene and asset sequences do not match")
-            image = inputs.project_directory / asset.file_path
+            image = inputs.project_directory.resolve() / asset.file_path
             command.extend(["-loop", "1", "-framerate", str(config.fps), "-i", str(image)])
             start_frame = round(scene.start_seconds * config.fps)
             end_frame = round(scene.end_seconds * config.fps)
@@ -92,8 +96,12 @@ class FFmpegRenderer:
                 f"[{label}]"
             )
         audio_index = len(scenes)
-        command.extend(["-i", str(inputs.project_directory / inputs.narration.file_path)])
-        filters.append(f"{''.join(labels)}concat=n={len(scenes)}:v=1:a=0[v]")
+        command.extend(["-i", str(inputs.project_directory.resolve() / inputs.narration.file_path)])
+        concat_label = "[precaption]" if inputs.caption_ass_path else "[v]"
+        filters.append(f"{''.join(labels)}concat=n={len(scenes)}:v=1:a=0{concat_label}")
+        if inputs.caption_ass_path:
+            # A fixed project-relative filter path avoids Windows drive/space escaping.
+            filters.append("[precaption]ass=filename=captions/captions.ass[v]")
         command.extend(
             [
                 "-filter_complex",
@@ -119,10 +127,15 @@ class FFmpegRenderer:
         )
         return command
 
-    def _run(self, command: list[str], stage: str) -> str:
+    def _run(self, command: list[str], stage: str, cwd: Path | None = None) -> str:
         try:
             result = subprocess.run(
-                command, check=False, capture_output=True, text=True, timeout=self._timeout_seconds
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=self._timeout_seconds,
+                cwd=cwd,
             )
         except subprocess.TimeoutExpired as error:
             raise RenderError(f"{stage} timed out after {self._timeout_seconds} seconds") from error

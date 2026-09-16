@@ -144,6 +144,48 @@ class RenderConfig(ChannelConfigModel):
         return self
 
 
+class CaptionAlignmentConfig(ChannelConfigModel):
+    provider: Literal["local", "openai"] = "local"
+    model: NonEmptyText | None = None
+
+    @model_validator(mode="after")
+    def has_model_for_openai(self) -> "CaptionAlignmentConfig":
+        if self.provider == "openai" and not self.model:
+            raise ValueError("OpenAI caption alignment requires a model")
+        return self
+
+
+class CaptionGroupingConfig(ChannelConfigModel):
+    max_words_per_cue: PositiveInt = 5
+    min_cue_duration_seconds: PositiveFloat = 0.45
+    max_cue_duration_seconds: PositiveFloat = 2.5
+    max_characters_per_line: PositiveInt = 24
+
+    @model_validator(mode="after")
+    def valid_duration_range(self) -> "CaptionGroupingConfig":
+        if self.min_cue_duration_seconds > self.max_cue_duration_seconds:
+            raise ValueError("minimum caption duration exceeds maximum")
+        return self
+
+
+class CaptionStyleConfig(ChannelConfigModel):
+    font_family: NonEmptyText = "Arial"
+    font_size: PositiveInt = 64
+    bold: bool = True
+    max_lines: Literal[1, 2] = 2
+    position: Literal["lower-middle"] = "lower-middle"
+    margin_vertical: PositiveInt = 450
+    outline_width: PositiveFloat = 4
+    shadow: bool = True
+
+
+class CaptionConfig(ChannelConfigModel):
+    enabled: bool = False
+    alignment: CaptionAlignmentConfig = Field(default_factory=CaptionAlignmentConfig)
+    grouping: CaptionGroupingConfig = Field(default_factory=CaptionGroupingConfig)
+    style: CaptionStyleConfig = Field(default_factory=CaptionStyleConfig)
+
+
 class ChannelConfig(ChannelConfigModel):
     """Complete channel/editorial configuration consumed at application composition time."""
 
@@ -156,4 +198,5 @@ class ChannelConfig(ChannelConfigModel):
     narration: NarrationConfig
     visuals: VisualConfig
     render: RenderConfig
+    captions: CaptionConfig = Field(default_factory=CaptionConfig)
     publishing: PublishingConfig

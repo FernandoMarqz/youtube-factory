@@ -7,6 +7,7 @@ from typing import Literal
 from dotenv import load_dotenv
 
 from youtube_factory.application.exceptions import (
+    CaptionConfigurationError,
     NarrationGenerationError,
     ProviderConfigurationError,
     ScenePlannerConfigurationError,
@@ -22,7 +23,7 @@ def load_local_environment(dotenv_path: Path | None = None) -> bool:
 
 def get_openai_api_key(
     required_for: Literal[
-        "narration", "research", "scene_planning", "script", "visuals"
+        "narration", "research", "scene_planning", "script", "visuals", "caption_alignment"
     ] = "narration",
 ) -> str:
     """Return the configured API key without logging or persisting its value."""
@@ -43,6 +44,10 @@ def get_openai_api_key(
         if required_for == "visuals":
             raise VisualConfigurationError(
                 "OPENAI_API_KEY is required when visual provider is openai"
+            )
+        if required_for == "caption_alignment":
+            raise CaptionConfigurationError(
+                "OPENAI_API_KEY is required when caption alignment provider is openai"
             )
         raise NarrationGenerationError(
             "OPENAI_API_KEY is required when narration provider is openai"

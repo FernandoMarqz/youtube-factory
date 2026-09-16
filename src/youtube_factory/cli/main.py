@@ -8,6 +8,7 @@ from youtube_factory import __version__
 from youtube_factory.adapters.ffmpeg import FFmpegRenderer
 from youtube_factory.adapters.local import (
     FileSystemArtifactStore,
+    LocalCaptionAlignmentProvider,
     LocalNarrationGenerator,
     LocalPlaceholderVisualAssetProvider,
     LocalResearchProvider,
@@ -15,6 +16,8 @@ from youtube_factory.adapters.local import (
     LocalScriptGenerator,
 )
 from youtube_factory.adapters.openai import (
+    OpenAICaptionAlignmentConfig,
+    OpenAICaptionAlignmentProvider,
     OpenAINarrationGenerator,
     OpenAIResearchConfig,
     OpenAIResearchProvider,
@@ -38,8 +41,13 @@ from youtube_factory.application.services import (
     DeterministicVisualPromptBuilder,
     SceneTimingReconciler,
 )
-from youtube_factory.application.use_cases import CreateContentUseCase, RenderProjectUseCase
+from youtube_factory.application.use_cases import (
+    CaptionProjectUseCase,
+    CreateContentUseCase,
+    RenderProjectUseCase,
+)
 from youtube_factory.ports import (
+    CaptionAlignmentProvider,
     NarrationGenerator,
     Renderer,
     ResearchProvider,
@@ -101,6 +109,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional renderer override; otherwise the selected channel decides.",
     )
     create_content.add_argument(
+        "--caption-alignment",
+        choices=("local", "openai"),
+        default=None,
+        help="Optional word-alignment provider override.",
+    )
+    create_content.add_argument(
         "--output-dir",
         type=Path,
         default=None,
@@ -113,6 +127,13 @@ def build_parser() -> argparse.ArgumentParser:
     render_project.add_argument("--channel", default="engineering-es")
     render_project.add_argument("--renderer", choices=("ffmpeg",), default=None)
     render_project.add_argument("--output-dir", type=Path, default=None)
+    caption_project = subcommands.add_parser(
+        "caption-project", help="Align and caption existing narration without upstream generation."
+    )
+    caption_project.add_argument("--project-id", required=True)
+    caption_project.add_argument("--channel", default="engineering-es")
+    caption_project.add_argument("--caption-alignment", choices=("local", "openai"), default=None)
+    caption_project.add_argument("--output-dir", type=Path, default=None)
     return parser
 
 
@@ -131,6 +152,16 @@ def main(argv: Sequence[str] | None = None) -> None:
             narration_generator = build_narration_generator(channel, args.narration_provider)
             visual_asset_provider = build_visual_asset_provider(channel, args.visual_provider)
             renderer = build_renderer(channel, args.renderer)
+            caption_settings = (
+                channel.captions.model_copy(update={"enabled": True})
+                if args.caption_alignment
+                else channel.captions
+            )
+            aligner = (
+                build_caption_alignment_provider(channel, args.caption_alignment)
+                if caption_settings.enabled
+                else None
+            )
             if isinstance(renderer, FFmpegRenderer):
                 renderer.check_available()
             store = FileSystemArtifactStore(
@@ -148,10 +179,13 @@ def main(argv: Sequence[str] | None = None) -> None:
                 artifact_store=store,
             )
             result = use_case.execute(args.topic)
+            if aligner is not None:
+                CaptionProjectUseCase(store, aligner, channel).execute(str(result.project_id))
             render_use_case = RenderProjectUseCase(
                 store,
                 renderer,
                 channel.render,
+                caption_settings,
             )
             render_use_case.execute(str(result.project_id))
         except ContentPipelineError as error:
@@ -164,11 +198,40 @@ def main(argv: Sequence[str] | None = None) -> None:
             output_root = args.output_dir or get_output_directory(Path("data/projects"))
             store = FileSystemArtifactStore(output_root)
             renderer = build_renderer(channel, args.renderer)
-            render_use_case = RenderProjectUseCase(store, renderer, channel.render)
+            render_use_case = RenderProjectUseCase(
+                store, renderer, channel.render, channel.captions
+            )
             artifact = render_use_case.execute(args.project_id)
         except ContentPipelineError as error:
             raise SystemExit(f"error: {error}") from error
         print(output_root / args.project_id / artifact.file_path)
+    elif args.command == "caption-project":
+        load_local_environment()
+        try:
+            channel = load_channel_config(args.channel)
+            output_root = args.output_dir or get_output_directory(Path("data/projects"))
+            store = FileSystemArtifactStore(output_root)
+            aligner = build_caption_alignment_provider(channel, args.caption_alignment)
+            CaptionProjectUseCase(store, aligner, channel).execute(args.project_id)
+        except ContentPipelineError as error:
+            raise SystemExit(f"error: {error}") from error
+        print(output_root / args.project_id / "captions.json")
+
+
+def build_caption_alignment_provider(
+    channel: ChannelConfig, override: str | None = None
+) -> CaptionAlignmentProvider:
+    provider = override or channel.captions.alignment.provider
+    if provider == "local":
+        return LocalCaptionAlignmentProvider()
+    if provider == "openai":
+        model = channel.captions.alignment.model
+        if not model:
+            raise ContentPipelineError("OpenAI caption alignment model is not configured")
+        return OpenAICaptionAlignmentProvider(
+            OpenAICaptionAlignmentConfig(get_openai_api_key("caption_alignment"), model)
+        )
+    raise ContentPipelineError(f"unsupported caption alignment provider: {provider}")
 
 
 def build_renderer(channel: ChannelConfig, renderer_override: str | None = None) -> Renderer:

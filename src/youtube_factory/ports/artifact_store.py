@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Protocol
 
 from youtube_factory.domain.models import (
+    CaptionPlan,
     ContentManifest,
     Narration,
     RenderArtifact,
@@ -14,6 +15,7 @@ from youtube_factory.domain.models import (
     Topic,
     VisualAssetManifest,
     VisualPromptPlan,
+    WordAlignment,
 )
 from youtube_factory.ports.renderer import RenderInputs
 from youtube_factory.ports.visuals import GeneratedVisualAsset
@@ -46,3 +48,23 @@ class ProjectArtifactStore(Protocol):
         self, project_id: str, artifact: RenderArtifact, renderer_identifier: str
     ) -> None:
         """Persist measured render metadata and extend the project manifest."""
+
+    def load_caption_audio(self, project_id: str) -> tuple[Narration, bytes]:
+        """Read validated persisted narration metadata and WAV."""
+
+    def save_captions(
+        self,
+        project_id: str,
+        alignment: WordAlignment,
+        plan: CaptionPlan,
+        ass_text: str,
+        identifier: str,
+        planner_identifier: str,
+    ) -> None:
+        """Persist semantic and derived caption artifacts plus manifest metadata."""
+
+    def load_caption_plan(self, project_id: str) -> CaptionPlan | None:
+        """Return an existing semantic caption plan, if present."""
+
+    def save_caption_ass(self, project_id: str, ass_text: str) -> None:
+        """Regenerate styled ASS from an existing plan without realignment."""

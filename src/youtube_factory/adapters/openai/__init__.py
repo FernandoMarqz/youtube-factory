@@ -1,5 +1,9 @@
 """OpenAI infrastructure adapters."""
 
+from youtube_factory.adapters.openai.caption_alignment import (
+    OpenAICaptionAlignmentConfig,
+    OpenAICaptionAlignmentProvider,
+)
 from youtube_factory.adapters.openai.narration_generator import (
     OpenAINarrationGenerator,
     OpenAITTSConfig,
@@ -28,6 +32,8 @@ from youtube_factory.adapters.openai.visual_assets import (
 
 __all__ = [
     "OpenAINarrationGenerator",
+    "OpenAICaptionAlignmentConfig",
+    "OpenAICaptionAlignmentProvider",
     "OpenAIResearchConfig",
     "OpenAIResearchProvider",
     "OpenAIResearchResponse",

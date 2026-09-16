@@ -55,3 +55,23 @@ render:
   audio_codec: aac
   audio_bitrate: 192k
   pixel_format: yuv420p
+
+captions:
+  enabled: true
+  alignment:
+    provider: local
+    model: whisper-1
+  grouping:
+    max_words_per_cue: 5
+    min_cue_duration_seconds: 0.45
+    max_cue_duration_seconds: 2.5
+    max_characters_per_line: 24
+  style:
+    font_family: Arial
+    font_size: 64
+    bold: true
+    max_lines: 2
+    position: lower-middle
+    margin_vertical: 450
+    outline_width: 4
+    shadow: true

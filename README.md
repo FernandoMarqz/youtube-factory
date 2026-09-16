@@ -4,7 +4,7 @@ AI-assisted platform for generating, rendering, reviewing, publishing, and analy
 
 ## Current stage
 
-Phase 5: provider-neutral FFmpeg rendering of persisted media. Rendering requires `ffmpeg` and
+Phase 6: caption alignment and burned-in ASS captions over Phase 5 video. Rendering requires `ffmpeg` and
 `ffprobe` on PATH; the project does not download or bundle them.
 
 The immediate target is a local vertical slice:
@@ -91,7 +91,7 @@ Use `--output-dir <path>` to choose another root. The project identifier and loc
 content are stable for the same input. The local research, script and scene-planning adapters remain
 intentional deterministic fixtures for the reference topic. OpenAI-backed implementations can now
 handle arbitrary topics while the local fixtures preserve offline regression coverage. Rendering is
-available in Phase 5; databases and publishing are not implemented yet.
+available, including caption burn-in; databases and publishing are not implemented yet.
 
 `scenes.json` is a deterministic audiovisual timeline. Each scene has a narration segment,
 continuous start/end/duration estimates, a separate visual instruction and purpose, an asset type,
@@ -128,10 +128,60 @@ python -m youtube_factory render-project `
 Use `--output-dir <path>` on either command if the project is outside `data/projects`.
 The renderer uses one persisted PNG per timed scene. It scales each image proportionally to cover
 1080x1920 and crops the overflow symmetrically. Hard cuts join the static scenes; the persisted
-WAV becomes the AAC audio track. The target is 30 fps H.264/yuv420p in MP4. No captions,
-animation, transitions or music are rendered yet. The final file is `render/short.mp4` and its
+WAV becomes the AAC audio track. The target is 30 fps H.264/yuv420p in MP4. No animation,
+transitions or music are rendered. The final file is `render/short.mp4` and its
 ffprobe-measured metadata is in `render.json`. `manifest.json` lists both and identifies the
 renderer. Duration may differ from the WAV by at most two video frames (frame and AAC rounding).
+
+## Phase 6: narration-aligned captions
+
+`captions.enabled` in channel YAML enables burned-in static caption chunks. The local alignment
+provider is deterministic and **synthetic**; it is for offline assembly only. For real speech,
+select `--caption-alignment openai`. The configured `whisper-1` model supplies acoustic word
+timestamps via `audio.transcriptions.create(response_format="verbose_json",
+timestamp_granularities=["word"])`. OpenAI transcription never supplies display text: the
+persisted `narration.narration_text` remains canonical. A normalized ordered comparison accepts
+punctuation, case and accent differences, and rejects alignment below 90% matched canonical
+tokens. Missing isolated tokens need a timing gap for interpolation or alignment fails.
+An isolated zero-length OpenAI word interval may be repaired using at most 20 ms of adjacent
+acoustic time; wholly degenerate or non-monotonic timestamp sequences still fail.
+
+`word-alignment.json`, `captions.json` and `captions/captions.ass` remain inspectable. A deterministic
+planner groups up to five words into cues, respects punctuation and duration limits, and wraps to
+at most two lines. It checks the actual line break while grouping, not just total characters.
+ASS burns bold white text with a dark outline, small shadow and bottom-center
+alignment 450 pixels above the bottom of a 1080x1920 frame. The fixed project-relative ASS filter
+path is resolved from the project directory, avoiding Windows drive-letter escaping. Changing
+channel caption style and running `render-project` regenerates ASS from `captions.json` without
+another alignment or upstream AI call. Projects without a caption plan still render uncaptioned.
+
+Offline full pipeline (the local WAV is deliberately silent):
+
+```powershell
+python -m youtube_factory create-content `
+  --channel engineering-es `
+  --topic "¿Por qué las tapas de alcantarilla son redondas?" `
+  --research-provider local --script-generator local --scene-planner local `
+  --narration-provider local --visual-provider local-placeholder `
+  --caption-alignment local --renderer ffmpeg
+```
+
+To caption an existing project containing real speech and images without regenerating them, only
+the alignment command makes one paid transcription call:
+
+```powershell
+python -m youtube_factory caption-project `
+  --project-id <project-id> --channel engineering-es `
+  --caption-alignment openai --output-dir output
+python -m youtube_factory render-project `
+  --project-id <project-id> --channel engineering-es `
+  --renderer ffmpeg --output-dir output
+```
+
+The full paid pipeline can use all five OpenAI creative providers plus
+`--caption-alignment openai`; it is never run automatically. FFmpeg must include libass, and the
+selected font family must be resolvable on the host. On Windows, Arial is normally installed;
+no font file is bundled.
 
 ## Phase 4: visual prompts and assets
 
@@ -275,6 +325,7 @@ python -m youtube_factory create-content `
   --scene-planner openai `
   --narration-provider openai `
   --visual-provider openai `
+  --caption-alignment openai `
   --renderer ffmpeg
 ```
 

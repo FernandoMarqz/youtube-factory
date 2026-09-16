@@ -1,7 +1,12 @@
 """Validated domain models for the Shorts production pipeline."""
 
 from youtube_factory.domain.models.contracts import (
+    AlignedWord,
     Asset,
+    CaptionAlignmentMetadata,
+    CaptionCue,
+    CaptionPlan,
+    CaptionPlannerMetadata,
     ContentManifest,
     Narration,
     NarrationGeneratorMetadata,
@@ -25,10 +30,16 @@ from youtube_factory.domain.models.contracts import (
     VisualAssetManifest,
     VisualPrompt,
     VisualPromptPlan,
+    WordAlignment,
 )
 
 __all__ = [
     "Asset",
+    "AlignedWord",
+    "CaptionAlignmentMetadata",
+    "CaptionCue",
+    "CaptionPlan",
+    "CaptionPlannerMetadata",
     "ContentManifest",
     "Narration",
     "NarrationGeneratorMetadata",
@@ -52,4 +63,5 @@ __all__ = [
     "VisualAssetManifest",
     "VisualPrompt",
     "VisualPromptPlan",
+    "WordAlignment",
 ]

@@ -120,6 +120,77 @@ class RendererMetadata(DomainModel):
     identifier: NonEmptyText
 
 
+class CaptionAlignmentMetadata(DomainModel):
+    provider: NonEmptyText
+    model: NonEmptyText | None = None
+    identifier: NonEmptyText
+
+
+class CaptionPlannerMetadata(DomainModel):
+    identifier: NonEmptyText
+    cue_count: PositiveSequence
+
+
+class AlignedWord(DomainModel):
+    text: NonEmptyText
+    start_seconds: Annotated[float, Field(ge=0)]
+    end_seconds: PositiveSeconds
+
+    @model_validator(mode="after")
+    def valid_interval(self) -> AlignedWord:
+        if self.end_seconds <= self.start_seconds:
+            raise ValueError("aligned word end must exceed start")
+        return self
+
+
+class WordAlignment(DomainModel):
+    topic_id: UUID
+    provider: NonEmptyText
+    model: NonEmptyText | None = None
+    duration_seconds: PositiveSeconds
+    words: list[AlignedWord] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def valid_timeline(self) -> WordAlignment:
+        for previous, current in zip(self.words, self.words[1:], strict=False):
+            if (
+                current.start_seconds < previous.start_seconds
+                or current.end_seconds < previous.end_seconds
+            ):
+                raise ValueError("aligned words must be chronological")
+        if self.words[-1].end_seconds > self.duration_seconds + 0.1:
+            raise ValueError("aligned words exceed narration duration")
+        return self
+
+
+class CaptionCue(DomainModel):
+    sequence: PositiveSequence
+    text: NonEmptyText
+    start_seconds: Annotated[float, Field(ge=0)]
+    end_seconds: PositiveSeconds
+
+    @model_validator(mode="after")
+    def valid_interval(self) -> CaptionCue:
+        if self.end_seconds <= self.start_seconds:
+            raise ValueError("caption cue end must exceed start")
+        return self
+
+
+class CaptionPlan(DomainModel):
+    topic_id: UUID
+    language: NonEmptyText
+    cues: list[CaptionCue] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def valid_order(self) -> CaptionPlan:
+        if [cue.sequence for cue in self.cues] != list(range(1, len(self.cues) + 1)):
+            raise ValueError("caption cue sequences must start at 1 and be contiguous")
+        for previous, current in zip(self.cues, self.cues[1:], strict=False):
+            if current.start_seconds < previous.end_seconds - 0.001:
+                raise ValueError("caption cues must not overlap")
+        return self
+
+
 class RenderArtifact(DomainModel):
     """Measured properties of a persisted rendered video."""
 
@@ -167,6 +238,8 @@ class ContentManifest(DomainModel):
     timing_reconciliation_strategy: NonEmptyText | None = None
     visual_asset_generator: VisualAssetGeneratorMetadata | None = None
     renderer: RendererMetadata | None = None
+    caption_alignment: CaptionAlignmentMetadata | None = None
+    caption_planner: CaptionPlannerMetadata | None = None
 
 
 class Scene(DomainModel):
