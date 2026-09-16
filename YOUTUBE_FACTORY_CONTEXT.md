@@ -1,477 +1,103 @@
-# YouTube Factory — Project Context
+# YouTube Factory - Fresh-Session Handoff
 
-## 1. Vision
+## Purpose And Status
 
-The goal is to build a reusable software platform capable of creating and operating YouTube Shorts channels with a high degree of automation.
+Build a local-first, inspectable pipeline for a Spanish engineering/technology YouTube Shorts
+channel. Human approval is required before any future publication. Python 3.12, Pydantic v2,
+pytest, ruff and mypy are the current baseline. The architecture is a modular monolith with
+domain contracts, application use cases/services, provider ports, infrastructure adapters and a
+CLI composition root. PostgreSQL, FastAPI, n8n, publishing and analytics are deferred.
 
-The platform should eventually support:
+Phase 5 is implemented and verified with a real MP4. FFmpeg 9.0.1 was already installed on the
+Phase 5 development machine through winget, but its bin directory was missing from the shell's
+PATH. A temporary PATH addition allowed the full offline render and test suite to pass. No
+machine-specific FFmpeg path is stored in project code or channel configuration.
 
-- topic discovery
-- research
-- script generation
-- fact checking
-- scene planning
-- narration generation
-- image/video asset creation or sourcing
-- automatic rendering
-- human review
-- YouTube publishing
-- analytics ingestion
-- experiment tracking
-- learning from content performance
-- multiple channels driven mainly by configuration
-
-The first objective is not to build a large network of automated channels. The first objective is to prove that a single content format can be produced reliably and perform well enough to justify scaling.
-
-## 2. Business Hypothesis
-
-The broader business idea is to create semi-automated or heavily automated YouTube channels whose content production pipeline is powered by AI and software automation.
-
-The preferred business strategy is not to depend exclusively on Shorts ad revenue. In the long term, the platform should allow channels to support multiple monetization paths such as:
-
-- YouTube advertising
-- long-form content
-- affiliate revenue
-- sponsorships
-- digital products
-- newsletters
-- audience-driven products or services
-
-The first technical milestone is independent from monetization.
-
-## 3. Initial Channel Concept
-
-The first test channel will be in Spanish and focus on:
-
-- engineering curiosities
-- technology
-- infrastructure
-- everyday objects with interesting technical explanations
-- science-adjacent practical explanations
-
-Example topics:
-
-- Why manhole covers are round
-- Why airplane windows have a small hole
-- Why high-voltage cables have colored balls
-- Why airplanes appear not to fly in straight lines
-- Why windshields have black dots around their edges
-
-The content should be evergreen where possible.
-
-## 4. Content Philosophy
-
-The goal is not to produce generic mass-generated AI content.
-
-Each Short should provide genuine informational value and should have:
-
-- a strong hook
-- a clear narrative
-- a distinct explanation
-- factual grounding
-- visual variety
-- original editing
-- captions
-- coherent pacing
-
-The system should optimize quality and repeatability before scale.
-
-## 5. First Functional Goal
-
-Build one local end-to-end pipeline:
+## Implemented Pipeline And Providers
 
 ```text
-topic
-  -> research
-  -> script
-  -> scene planning
-  -> narration
-  -> assets
-  -> subtitles
-  -> FFmpeg render
-  -> final.mp4
+Topic -> ResearchResult -> Script -> ScenePlan -> Narration + WAV
+      -> TimedScenePlan -> VisualPromptPlan -> VisualAssetManifest
+      -> Renderer -> RenderArtifact
 ```
 
-Reference topic:
+`ResearchProvider`, `ScriptGenerator`, `ScenePlanner`, `NarrationGenerator`, and
+`VisualAssetProvider` each have deterministic local and OpenAI adapters. Local research/script/
+scene planning are reference-topic fixtures. Local narration is silent mono PCM WAV for offline
+timing tests; OpenAI TTS output is normalized to mono 16-bit PCM WAV before persistence. Local
+visuals are deterministic PNG cards; OpenAI visuals are real generated PNGs. `Renderer` currently
+has `FFmpegRenderer`. `ProjectArtifactStore` has a filesystem adapter.
 
-> ¿Por qué las tapas de alcantarilla son redondas?
+OpenAI research uses web search and only persists URLs present in tool source evidence. Script
+generation consumes validated research without its own search; it references exact research facts,
+and Python builds full narration and estimates duration. AI scene planning validates complete
+narration reconstruction and uses model durations only as relative weights. These decisions are
+recorded in ADRs 0011 and 0012.
 
-The first milestone should produce a final Short that is good enough to be manually reviewed for publication.
+`OpenAIScriptGenerator` targets the channel content duration and performs at most one automatic
+rewrite when its deterministic 150-words-per-minute estimate is outside min/max bounds. The
+rewrite receives the original script and the same `ResearchResult`; only a duration-valid final
+script is returned and persisted. The local script fixture remains unchanged.
 
-## 6. Technology Decisions
+## Timing, Visuals And Rendering
 
-Initial stack:
+`scenes.json` is a semantic/provisional timeline. `narration.wav` is measured audio.
+`timed-scenes.json` reconciles scene boundaries to that audio and is the sole authoritative render
+timeline. Visual prompts are built separately from scene descriptions, then
+`visual-assets.json` maps one persisted PNG per scene with its exact prompt hash. `ANIMATION`
+is editorial intent only.
 
-- Python 3.12
-- FastAPI later for internal APIs
-- Pydantic v2
-- pytest
-- ruff
-- mypy
-- FFmpeg
-- Docker / Docker Compose
+The renderer reads persisted WAV and PNGs; it never regenerates them. It uses static scenes with
+hard cuts. Images scale proportionally to cover 1080x1920 and are center-cropped without source
+modification. Output is 30 fps H.264/AAC/yuv420p MP4 according to typed channel configuration.
+`ffprobe` checks streams, codecs, size, FPS and duration within two frames of the timed narration.
+FFmpeg executables are discovered through PATH, with no bundled binary or hardcoded machine path.
+No subtitles, music, motion or publishing are implemented.
 
-Later milestones:
+## Configuration And Artifacts
 
-- PostgreSQL
-- SQLAlchemy
-- Alembic
-- n8n
-- YouTube Data API
-- YouTube Analytics API
+`.env` contains only secrets and machine-local output root. Version-controlled
+`config/channels/engineering-es.yaml` has typed immutable research, script, scene planning,
+narration, visuals, render and publishing sections. CLI override wins over channel settings; there
+is no implicit fallback. The channel defaults to local research/script/planning/visuals, OpenAI
+narration, and FFmpeg rendering. Use the local narration override for an offline run.
 
-## 7. Why Python
+Each project is under `data/projects/<project-id>/` by default, unless `.env` or `--output-dir`
+overrides the root. It contains `topic.json`,
+`research.json`, `script.json`, `scenes.json`, `narration.json`, `narration.wav`,
+`timed-scenes.json`, `visual-prompts.json`, `visual-assets.json`, `assets/scene-XX.png`,
+`render.json`, `render/short.mp4` and `manifest.json`. The manifest inventories artifacts and
+provider identities, including the renderer. Intermediate files are product artifacts, not temp
+files. The render-only use case validates stored media before rendering; it makes no upstream
+provider calls.
 
-Python is preferred over Java for this project because the initial workload is heavily oriented toward:
+## Commands
 
-- AI integrations
-- audio processing
-- media manipulation
-- automation
-- rapid experimentation
-- data analysis
+```powershell
+python -m youtube_factory create-content `
+  --channel engineering-es `
+  --topic "¿Por qué las tapas de alcantarilla son redondas?" `
+  --research-provider local --script-generator local --scene-planner local `
+  --narration-provider local --visual-provider local-placeholder --renderer ffmpeg
 
-The architecture should still follow disciplined software engineering practices.
+python -m youtube_factory render-project `
+  --project-id <project-id> --channel engineering-es --renderer ffmpeg
 
-## 8. Why n8n Is Not The Core Application
-
-n8n may be introduced later as an orchestration layer.
-
-Its responsibilities may include:
-
-- scheduling
-- triggering generation jobs
-- sending approval notifications
-- reacting to human approval
-- invoking publishing jobs
-- triggering analytics collection
-
-It must not contain core business logic.
-
-Bad pattern:
-
-```text
-n8n
- -> prompts
- -> large JavaScript nodes
- -> SQL
- -> provider logic
- -> rendering rules
+python -m pytest -q -p no:cacheprovider --basetemp .pytest_tmp
+python -m ruff check .
+python -m ruff format --check .
+python -m mypy src
+git diff --check
 ```
 
-Preferred pattern:
-
-```text
-n8n
- -> call youtube-factory API / CLI
- -> wait for result
- -> request human approval
- -> trigger next application use case
-```
-
-## 9. Architecture Direction
-
-Start as a modular monolith.
-
-Suggested modules:
-
-```text
-domain
-application
-ports
-adapters
-cli
-api
-```
-
-The domain should not depend on external providers.
-
-Application services orchestrate domain behavior and provider ports.
-
-Adapters implement specific providers.
-
-Example abstractions:
-
-```text
-LLMProvider
-ResearchProvider
-TTSProvider
-VisualAssetProvider
-Renderer
-StorageProvider
-Publisher
-AnalyticsProvider
-```
-
-## 10. Provider Strategy
-
-Do not hardcode business logic around one vendor.
-
-Possible providers may change over time:
-
-LLM:
-- OpenAI
-- other hosted models
-- local models
-
-TTS:
-- OpenAI
-- ElevenLabs
-- local TTS
-
-Visuals:
-- generated images
-- licensed stock/media APIs
-- diagrams created programmatically
-- future video generation
-
-Storage:
-- local filesystem first
-- S3/compatible storage later
-
-## 11. Structured LLM Output
-
-LLM output must be validated.
-
-Do not pass large free-form text blobs between pipeline stages when structured contracts are possible.
-
-Example concepts:
-
-```text
-Topic
-ResearchResult
-Script
-ScenePlan
-Scene
-Narration
-Asset
-RenderResult
-```
-
-Prefer JSON/Pydantic contracts.
-
-Example concept:
-
-```python
-class Script(BaseModel):
-    topic: str
-    hook: str
-    narration: str
-    hook_type: HookType
-    estimated_duration_seconds: float
-    sources: list[Source]
-```
-
-## 12. Artifact-First Pipeline
-
-Each step should write inspectable artifacts.
-
-Example:
-
-```text
-output/short_000001/
-├── topic.json
-├── research.json
-├── script.json
-├── scenes.json
-├── narration.mp3
-├── subtitles.ass
-├── assets/
-└── final.mp4
-```
-
-Benefits:
-
-- reproducibility
-- debugging
-- manual review
-- partial regeneration
-- experiment comparison
-- provider migration
-
-## 13. Rendering Strategy
-
-The first version should avoid expensive full-video generation.
-
-The initial visual strategy should combine:
-
-- generated or sourced still images
-- diagrams
-- zoom and pan
-- crop animation
-- transitions
-- overlays
-- captions
-- arrows/highlights
-- optional background music
-- sound effects where appropriate
-
-FFmpeg is the primary renderer.
-
-Target output:
-
-- 9:16
-- 1080x1920
-- Short-form duration
-- coherent caption timing
-- mobile-first readability
-
-## 14. Human In The Loop
-
-The initial system must not publish blindly.
-
-Expected flow:
-
-```text
-generate
- -> render
- -> automated QA
- -> human review
- -> approve / regenerate / reject
- -> publish
-```
-
-Human approval can later be delivered through a web interface, Telegram, or another channel.
-
-## 15. Persistence Strategy
-
-PostgreSQL is intentionally deferred until the media pipeline works.
-
-When introduced, persist concepts such as:
-
-- Channel
-- Short
-- Topic
-- Script
-- Scene
-- Asset
-- Render
-- Publication
-- AnalyticsSnapshot
-- Experiment metadata
-
-## 16. Analytics Vision
-
-Eventually ingest YouTube performance metrics for every Short.
-
-Potential metrics:
-
-- views
-- engaged views
-- average view duration
-- average percentage viewed
-- likes
-- comments
-- shares
-- subscribers gained
-
-Collect snapshots at useful time intervals such as:
-
-- 1 hour
-- 6 hours
-- 24 hours
-- 72 hours
-- 7 days
-- 30 days
-
-The platform should later correlate content attributes with performance.
-
-## 17. Experiment Engine Vision
-
-Each Short may eventually contain experiment metadata such as:
-
-- topic category
-- hook type
-- duration
-- number of scenes
-- words per second
-- voice
-- visual style
-- CTA
-- upload time
-
-The system should make it possible to answer questions like:
-
-> Which hook types achieve the highest average percentage viewed?
-
-or:
-
-> Do Shorts between 28 and 34 seconds perform better than longer ones?
-
-This is a later milestone, not an MVP requirement.
-
-## 18. Multi-Channel Vision
-
-The long-term system should allow channels to be mostly config-driven.
-
-Example future configuration:
-
-```yaml
-channel:
-  id: engineering_es
-  language: es
-
-content:
-  niche: engineering_curiosities
-  target_duration_seconds: 35
-
-visuals:
-  aspect_ratio: "9:16"
-  style: educational
-
-publishing:
-  shorts_per_day: 2
-```
-
-The architecture should make this possible later, but the first implementation must focus on one channel.
-
-## 19. Explicit Non-Goals For The First Milestone
-
-Do not build yet:
-
-- multiple channels
-- production-grade distributed architecture
-- Kubernetes
-- queues unless clearly needed
-- event buses
-- recommendation engines
-- autonomous publication
-- advanced dashboards
-- automatic monetization logic
-- large n8n workflows
-
-## 20. Development Strategy
-
-Build through milestones:
-
-1. repository bootstrap
-2. domain contracts
-3. local CLI
-4. research + script vertical slice
-5. scene planning
-6. narration
-7. media assets
-8. subtitles
-9. FFmpeg rendering
-10. review quality
-11. persistence
-12. n8n orchestration
-13. YouTube publishing
-14. analytics
-15. experiments
-16. multi-channel scaling
-
-Each milestone should leave the codebase working.
-
-## 21. Quality Bar
-
-The system succeeds technically when:
-
-- pipeline steps are isolated and testable
-- output contracts are validated
-- intermediate state is inspectable
-- providers are replaceable
-- generation is reproducible enough to debug
-- one command can eventually produce a complete Short
-
-The system succeeds as a product only when the generated content is genuinely worth publishing.
+Both commands accept `--output-dir <path>`. `render-project` is the way to render existing paid
+WAV/images without repeating OpenAI calls. The Phase 5 offline run produced
+`output/2be33118-f60f-5d27-afcb-c9217dad79f5/render/short.mp4`: 1080x1920, 30 fps, H.264,
+AAC, yuv420p, 36.733333 seconds and 128,952 bytes. The local WAV lasts 36.72 seconds; its audio
+is intentionally silent. `render.json` and `manifest.json` were verified, and `render-project`
+successfully rerendered the same saved inputs.
+
+## Next Milestone
+
+Phase 6: align captions with narration and render readable Shorts-style subtitles over the Phase 5
+video. Keep human review before any publication work.

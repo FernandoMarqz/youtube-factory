@@ -104,6 +104,20 @@ def test_request_uses_model_topic_search_tool_sources_and_schema() -> None:
     assert "up to 3" in str(responses.kwargs["input"])
 
 
+def test_structured_output_schema_does_not_use_unsupported_uri_format() -> None:
+    schema = OpenAIResearchResponse.model_json_schema()
+
+    def formats(value: object) -> list[str]:
+        if isinstance(value, dict):
+            own = [str(value["format"])] if "format" in value else []
+            return own + [item for child in value.values() for item in formats(child)]
+        if isinstance(value, list):
+            return [item for child in value for item in formats(child)]
+        return []
+
+    assert "uri" not in formats(schema)
+
+
 def test_valid_response_maps_source_backed_research_result() -> None:
     provider, _ = make_provider(research_payload())
     topic = Topic(id=uuid4(), title="¿Por qué los puentes tienen juntas de dilatación?")

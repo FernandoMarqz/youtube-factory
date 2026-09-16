@@ -1,6 +1,7 @@
 """Tests for the bootstrap CLI."""
 
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -51,6 +52,9 @@ def test_module_status_command() -> None:
     assert result.stdout.strip() == "youtube-factory bootstrap ready"
 
 
+@pytest.mark.skipif(
+    not shutil.which("ffmpeg") or not shutil.which("ffprobe"), reason="FFmpeg is unavailable"
+)
 def test_create_content_writes_parseable_artifacts(tmp_path: Path) -> None:
     result = subprocess.run(
         [
@@ -313,6 +317,9 @@ def test_openai_provider_fails_cleanly_without_api_key(tmp_path: Path) -> None:
     assert "OPENAI_API_KEY is required" in result.stderr
 
 
+@pytest.mark.skipif(
+    not shutil.which("ffmpeg") or not shutil.which("ffprobe"), reason="FFmpeg is unavailable"
+)
 def test_create_content_rejects_unsupported_topic(tmp_path: Path) -> None:
     result = subprocess.run(
         [

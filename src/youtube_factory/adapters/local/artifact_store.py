@@ -3,13 +3,22 @@
 import json
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 from pydantic import BaseModel
 
-from youtube_factory.application.exceptions import ArtifactPersistenceError
+from youtube_factory.application.exceptions import (
+    ArtifactPersistenceError,
+    InvalidAudioArtifactError,
+    RenderValidationError,
+    VisualAssetValidationError,
+)
+from youtube_factory.application.services import validate_png, validate_wav_narration
 from youtube_factory.domain.models import (
     ContentManifest,
     Narration,
+    RenderArtifact,
+    RendererMetadata,
     ResearchResult,
     ScenePlan,
     Script,
@@ -19,6 +28,7 @@ from youtube_factory.domain.models import (
     VisualPromptPlan,
 )
 from youtube_factory.ports import GeneratedVisualAsset
+from youtube_factory.ports.renderer import RenderInputs
 
 
 class FileSystemArtifactStore:
@@ -71,3 +81,80 @@ class FileSystemArtifactStore:
             json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
+
+    def load_render_inputs(self, project_id: str) -> RenderInputs:
+        """Load and validate the persisted WAV, timed plan and one PNG per scene."""
+        directory = self._project_directory(project_id)
+        try:
+            narration = Narration.model_validate_json(
+                (directory / "narration.json").read_text("utf-8")
+            )
+            timed = TimedScenePlan.model_validate_json(
+                (directory / "timed-scenes.json").read_text("utf-8")
+            )
+            visuals = VisualAssetManifest.model_validate_json(
+                (directory / "visual-assets.json").read_text("utf-8")
+            )
+            if not (narration.topic_id == timed.topic_id == visuals.topic_id):
+                raise RenderValidationError("render input topic ids do not match")
+            if len(timed.scenes) != len(visuals.assets):
+                raise RenderValidationError("timed scene and visual asset counts differ")
+            if abs(narration.duration_seconds - timed.total_duration_seconds) > 0.001:
+                raise RenderValidationError("timed plan does not match narration duration")
+            audio_path = self._resolve_project_path(directory, narration.file_path)
+            validate_wav_narration(narration, audio_path.read_bytes())
+            for scene, asset in zip(timed.scenes, visuals.assets, strict=True):
+                if scene.sequence != asset.scene_sequence:
+                    raise RenderValidationError("scene and asset sequences do not match")
+                image_path = self._resolve_project_path(directory, asset.file_path)
+                if validate_png(image_path.read_bytes()) != (asset.width, asset.height):
+                    raise RenderValidationError(f"PNG dimensions differ for scene {scene.sequence}")
+        except (
+            OSError,
+            ValueError,
+            VisualAssetValidationError,
+            InvalidAudioArtifactError,
+        ) as error:
+            raise RenderValidationError(f"missing or invalid render input: {error}") from error
+        return RenderInputs(directory, narration, timed, visuals)
+
+    def save_render(
+        self, project_id: str, artifact: RenderArtifact, renderer_identifier: str
+    ) -> None:
+        """Write render metadata after the renderer has produced the MP4."""
+        directory = self._project_directory(project_id)
+        try:
+            manifest = ContentManifest.model_validate_json(
+                (directory / "manifest.json").read_text("utf-8")
+            )
+            if not self._resolve_project_path(directory, artifact.file_path).is_file():
+                raise RenderValidationError("rendered MP4 is missing")
+            updated = manifest.model_copy(
+                update={
+                    "artifacts": tuple(
+                        dict.fromkeys((*manifest.artifacts, "render.json", artifact.file_path))
+                    ),
+                    "renderer": RendererMetadata(
+                        provider=artifact.provider, identifier=renderer_identifier
+                    ),
+                }
+            )
+            self._write_model(directory / "render.json", artifact)
+            self._write_model(directory / "manifest.json", updated)
+        except OSError as error:
+            raise ArtifactPersistenceError("could not persist render metadata") from error
+
+    @staticmethod
+    def _resolve_project_path(directory: Path, relative: str) -> Path:
+        path = (directory / relative).resolve()
+        if not path.is_relative_to(directory.resolve()):
+            raise RenderValidationError("render input path escapes project directory")
+        return path
+
+    def _project_directory(self, project_id: str) -> Path:
+        try:
+            if str(UUID(project_id)) != project_id:
+                raise ValueError
+        except ValueError as error:
+            raise RenderValidationError("project id must be a UUID") from error
+        return self._root_directory / project_id

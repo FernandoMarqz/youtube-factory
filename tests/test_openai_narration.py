@@ -64,6 +64,16 @@ def channel_config(provider: str = "openai") -> ChannelConfig:
                 "style": "test",
             },
             "publishing": {"enabled": False},
+            "render": {
+                "provider": "ffmpeg",
+                "width": 1080,
+                "height": 1920,
+                "fps": 30,
+                "video_codec": "libx264",
+                "audio_codec": "aac",
+                "audio_bitrate": "192k",
+                "pixel_format": "yuv420p",
+            },
         }
     )
 

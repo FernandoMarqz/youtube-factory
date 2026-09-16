@@ -18,7 +18,9 @@ research as factual grounding. Do not browse, independently research, or introdu
 claim not supported by the supplied key facts. If a useful fact is absent, omit it. Optimize for an
 immediate hook, curiosity, clarity, high information density, natural conversational delivery, no
 misleading clickbait, no filler, and a clear payoff. Return semantic components only as structured
-output. Do not return full_narration or a numeric duration; application code derives both."""
+output. Do not return full_narration or a numeric duration; application code derives both. Follow
+the language and spoken-duration targets in the input. Aim near the target with comfortable margin
+below the maximum; do not write right up to the upper limit."""
 
 
 class OpenAIHookType(StrEnum):
@@ -80,11 +82,30 @@ class OpenAIScriptGenerator:
         """Request grounded components and construct duplicate fields deterministically."""
         if research.topic_id != topic.id:
             raise ScriptValidationError("research does not belong to the requested topic")
+        first = self._request_script(self._build_input(topic, research))
+        script = self._to_domain_script(topic, research, first)
+        if self._within_duration_bounds(script.estimated_duration_seconds):
+            return script
+
+        rewritten = self._request_script(self._build_rewrite_input(topic, research, first, script))
+        script = self._to_domain_script(topic, research, rewritten)
+        if self._within_duration_bounds(script.estimated_duration_seconds):
+            return script
+        raise ScriptValidationError(
+            "generated script duration is outside configured Short bounds after one rewrite: "
+            f"estimated={script.estimated_duration_seconds:.1f}s, "
+            f"allowed={self._config.min_duration_seconds:.1f}-"
+            f"{self._config.max_duration_seconds:.1f}s, "
+            f"target={self._config.target_duration_seconds:.1f}s"
+        )
+
+    def _request_script(self, request_input: str) -> OpenAIScriptResponse:
+        """Make one structured request and translate provider and schema failures."""
         try:
             response = self._client.responses.parse(
                 model=self._config.model,
                 instructions=_SCRIPT_INSTRUCTIONS,
-                input=self._build_input(topic, research),
+                input=request_input,
                 text_format=OpenAIScriptResponse,
             )
         except Exception as error:
@@ -97,7 +118,14 @@ class OpenAIScriptGenerator:
             provider_script = OpenAIScriptResponse.model_validate(parsed)
         except ValidationError as error:
             raise ScriptValidationError("OpenAI returned an invalid script schema") from error
-        return self._to_domain_script(topic, research, provider_script)
+        return provider_script
+
+    def _within_duration_bounds(self, duration_seconds: float) -> bool:
+        return (
+            self._config.min_duration_seconds
+            <= duration_seconds
+            <= self._config.max_duration_seconds
+        )
 
     def _to_domain_script(
         self,
@@ -115,14 +143,6 @@ class OpenAIScriptGenerator:
             (provider_script.hook, provider_script.body, provider_script.ending)
         )
         estimated_duration = estimate_spoken_duration_seconds(full_narration)
-        if not (
-            self._config.min_duration_seconds
-            <= estimated_duration
-            <= self._config.max_duration_seconds
-        ):
-            raise ScriptValidationError(
-                "generated script duration is outside configured Short bounds"
-            )
         try:
             return Script(
                 topic_id=topic.id,
@@ -154,11 +174,55 @@ class OpenAIScriptGenerator:
             f"Topic: {topic.title}\n"
             f"Target duration: about {self._config.target_duration_seconds} seconds; accepted "
             f"range {self._config.min_duration_seconds}-{self._config.max_duration_seconds} "
-            "seconds at roughly 150 spoken words per minute.\n\n"
+            "seconds at roughly 150 spoken words per minute. Write natural spoken narration "
+            "that fits comfortably near the target. Leave margin below the maximum; do not "
+            "aim at the upper limit.\n\n"
             f"Research summary:\n{research.summary}\n\n"
             f"Allowed factual key facts (reference by 1-based index):\n{facts}\n\n"
             f"Uncertainties that must be respected:\n{uncertainties}\n\n"
             f"Source context for traceability:\n{sources}"
+        )
+
+    def _build_rewrite_input(
+        self,
+        topic: Topic,
+        research: ResearchResult,
+        first: OpenAIScriptResponse,
+        script: Script,
+    ) -> str:
+        direction = (
+            "too long"
+            if script.estimated_duration_seconds > self._config.max_duration_seconds
+            else "too short"
+        )
+        if direction == "too long":
+            guidance = (
+                "Reduce repetition, secondary examples, unnecessary qualifications, filler and "
+                "redundant sentences. Preserve the strongest hook, essential explanation and "
+                "payoff. Do not merely truncate the final sentence."
+            )
+        else:
+            guidance = (
+                "Expand toward the target using only information supported by the research. "
+                "Preserve concise Shorts pacing, natural spoken language, the hook and payoff "
+                "where useful. Do not invent examples or claims merely to add length."
+            )
+        return (
+            f"{self._build_input(topic, research)}\n\n"
+            "Rewrite this complete script coherently as a spoken Short. This is a single "
+            "duration correction, not new research. Preserve factual meaning and use only the "
+            "supplied ResearchResult; do not browse or add unsupported claims.\n"
+            f"Current status: {direction}. Current deterministic estimate: "
+            f"{script.estimated_duration_seconds:.1f} seconds. "
+            f"Allowed: {self._config.min_duration_seconds}-{self._config.max_duration_seconds} "
+            f"seconds. Target: {self._config.target_duration_seconds} seconds. "
+            "Aim comfortably near the target and below the maximum.\n"
+            f"Original hook: {first.hook}\n"
+            f"Original body: {first.body}\n"
+            f"Original ending: {first.ending}\n"
+            f"Original hook type: {first.hook_type.value}\n"
+            f"Original supporting fact indices: {first.supporting_fact_indices}\n"
+            f"{guidance}"
         )
 
 

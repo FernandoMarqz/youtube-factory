@@ -70,8 +70,8 @@ external AI or research integrations. The deterministic scene plan contains a co
 eight-scene, 34-second audiovisual timeline. The deterministic local WAV is measurable at 36.72
 seconds, and the separate timed plan reconciles scene boundaries to that authoritative media
 duration. Channel/editorial settings now live in typed `config/channels/*.yaml`, while `.env` is
-limited to secrets and machine-local infrastructure. Assets, subtitles and rendering remain future
-work; therefore this subset does not yet satisfy the full Phase 1 vertical-MP4 definition of done.
+limited to secrets and machine-local infrastructure. The later Phase 4 visual and Phase 5 render
+work now satisfy the media portion of the local vertical slice; subtitles and human review remain.
 
 ---
 
@@ -148,18 +148,27 @@ reference fixtures remain the offline defaults.
 
 ### Goal
 
-Produce Shorts with consistent visual quality.
+Produce a correct first vertical MP4 from persisted narration, timed scenes and PNGs.
 
 ### Deliverables
 
 - FFmpeg adapter
 - 1080x1920 output
-- subtitles
-- scene timing
-- zoom/pan
-- transitions
-- text overlays
+- authoritative narration-derived scene timing
+- static scenes with hard cuts and aspect-preserving cover/crop
+- render-only command for existing media
 - render validation
+
+Status: complete. A full offline MP4 and the render-only command were verified with FFmpeg/ffprobe;
+the complete automated suite passed with the tools on PATH. Subtitles, motion, transitions and
+overlays are deferred.
+
+---
+
+## Phase 6 - Subtitle And Caption Foundation
+
+Align captions with narration and render readable Shorts-style text over the Phase 5 video.
+Keep human review before publication.
 
 ---
 

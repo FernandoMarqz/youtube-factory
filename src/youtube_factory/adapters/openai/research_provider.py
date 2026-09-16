@@ -6,12 +6,13 @@ from datetime import UTC, datetime
 from typing import Annotated, Any
 from urllib.parse import urlsplit, urlunsplit
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, TypeAdapter, ValidationError
 
 from youtube_factory.application.exceptions import ResearchError, ResearchValidationError
 from youtube_factory.domain.models import ResearchResult, Source, Topic
 
 NonEmptyText = Annotated[str, Field(min_length=1)]
+_HTTP_URL = TypeAdapter(HttpUrl)
 
 _RESEARCH_INSTRUCTIONS = """You are a careful research assistant for short educational videos.
 Use web search for the supplied topic. Prefer primary sources, official documentation,
@@ -28,7 +29,9 @@ class OpenAIResearchSource(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
 
     title: NonEmptyText
-    url: HttpUrl
+    # Responses structured-output schemas do not accept Pydantic's `uri` format.
+    # The domain Source model validates this text as an HTTP URL after tool evidence is checked.
+    url: NonEmptyText
     publisher: NonEmptyText
     notes: NonEmptyText | None = None
 
@@ -127,17 +130,19 @@ class OpenAIResearchProvider:
             )
 
         retrieved_at = datetime.now(UTC)
-        sources = [
-            Source(
-                title=evidence[url].title or provider_source.title,
-                url=provider_source.url,
-                publisher=provider_source.publisher,
-                retrieved_at=retrieved_at,
-                notes=provider_source.notes,
-            )
-            for provider_source, url in zip(provider_result.sources, normalized_urls, strict=True)
-        ]
         try:
+            sources = [
+                Source(
+                    title=evidence[url].title or provider_source.title,
+                    url=_HTTP_URL.validate_python(provider_source.url),
+                    publisher=provider_source.publisher,
+                    retrieved_at=retrieved_at,
+                    notes=provider_source.notes,
+                )
+                for provider_source, url in zip(
+                    provider_result.sources, normalized_urls, strict=True
+                )
+            ]
             return ResearchResult(
                 topic_id=topic.id,
                 summary=provider_result.summary,
@@ -210,10 +215,14 @@ def _create_openai_client(api_key: str) -> Any:
 
 def _openai_error_message(error: Exception) -> str:
     error_name = type(error).__name__
+
     if error_name == "AuthenticationError":
         return "OpenAI research authentication failed"
+
     if error_name == "RateLimitError":
         return "OpenAI research rate limit reached"
+
     if error_name in {"APIConnectionError", "APITimeoutError"}:
         return "OpenAI research service is unavailable"
-    return "OpenAI research request failed"
+
+    return f"OpenAI research request failed: {error_name}: {error}"

@@ -77,6 +77,15 @@ visuals:
   style: educational
 publishing:
   enabled: false
+render:
+  provider: ffmpeg
+  width: 1080
+  height: 1920
+  fps: 30
+  video_codec: libx264
+  audio_codec: aac
+  audio_bitrate: 192k
+  pixel_format: yuv420p
 """
 
 

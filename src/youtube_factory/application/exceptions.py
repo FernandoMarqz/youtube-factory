@@ -87,3 +87,15 @@ class VisualAssetGenerationError(ContentPipelineError):
 
 class VisualAssetValidationError(ContentPipelineError):
     """Raised when generated image bytes are empty, malformed or unsupported."""
+
+
+class RenderError(ContentPipelineError):
+    """Raised when a prepared project cannot be rendered."""
+
+
+class RendererUnavailableError(RenderError):
+    """Raised when the selected media tools are missing."""
+
+
+class RenderValidationError(RenderError):
+    """Raised when render inputs or output media fail validation."""

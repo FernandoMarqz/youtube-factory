@@ -125,6 +125,25 @@ class PublishingConfig(ChannelConfigModel):
     enabled: bool
 
 
+class RenderConfig(ChannelConfigModel):
+    """One channel's MP4 encoding target."""
+
+    provider: Literal["ffmpeg"]
+    width: PositiveInt
+    height: PositiveInt
+    fps: PositiveInt
+    video_codec: NonEmptyText
+    audio_codec: NonEmptyText
+    audio_bitrate: NonEmptyText
+    pixel_format: NonEmptyText
+
+    @model_validator(mode="after")
+    def has_encodable_dimensions(self) -> "RenderConfig":
+        if self.width % 2 or self.height % 2 or self.height <= self.width:
+            raise ValueError("render dimensions must be even and vertical")
+        return self
+
+
 class ChannelConfig(ChannelConfigModel):
     """Complete channel/editorial configuration consumed at application composition time."""
 
@@ -136,4 +155,5 @@ class ChannelConfig(ChannelConfigModel):
     scene_planning: ScenePlanningConfig
     narration: NarrationConfig
     visuals: VisualConfig
+    render: RenderConfig
     publishing: PublishingConfig

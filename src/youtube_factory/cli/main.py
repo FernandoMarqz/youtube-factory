@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from youtube_factory import __version__
+from youtube_factory.adapters.ffmpeg import FFmpegRenderer
 from youtube_factory.adapters.local import (
     FileSystemArtifactStore,
     LocalNarrationGenerator,
@@ -37,9 +38,10 @@ from youtube_factory.application.services import (
     DeterministicVisualPromptBuilder,
     SceneTimingReconciler,
 )
-from youtube_factory.application.use_cases import CreateContentUseCase
+from youtube_factory.application.use_cases import CreateContentUseCase, RenderProjectUseCase
 from youtube_factory.ports import (
     NarrationGenerator,
+    Renderer,
     ResearchProvider,
     ScenePlanner,
     ScriptGenerator,
@@ -93,11 +95,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional visual override; otherwise the selected channel decides.",
     )
     create_content.add_argument(
+        "--renderer",
+        choices=("ffmpeg",),
+        default=None,
+        help="Optional renderer override; otherwise the selected channel decides.",
+    )
+    create_content.add_argument(
         "--output-dir",
         type=Path,
         default=None,
         help="Directory where project folders are written; overrides YOUTUBE_FACTORY_OUTPUT_DIR.",
     )
+    render_project = subcommands.add_parser(
+        "render-project", help="Render persisted narration, timed scenes and PNGs only."
+    )
+    render_project.add_argument("--project-id", required=True)
+    render_project.add_argument("--channel", default="engineering-es")
+    render_project.add_argument("--renderer", choices=("ffmpeg",), default=None)
+    render_project.add_argument("--output-dir", type=Path, default=None)
     return parser
 
 
@@ -110,23 +125,58 @@ def main(argv: Sequence[str] | None = None) -> None:
         load_local_environment()
         try:
             channel = load_channel_config(args.channel)
+            research_provider = build_research_provider(channel, args.research_provider)
+            script_generator = build_script_generator(channel, args.script_generator)
+            scene_planner = build_scene_planner(channel, args.scene_planner)
+            narration_generator = build_narration_generator(channel, args.narration_provider)
+            visual_asset_provider = build_visual_asset_provider(channel, args.visual_provider)
+            renderer = build_renderer(channel, args.renderer)
+            if isinstance(renderer, FFmpegRenderer):
+                renderer.check_available()
+            store = FileSystemArtifactStore(
+                args.output_dir or get_output_directory(Path("data/projects"))
+            )
             use_case = CreateContentUseCase(
-                research_provider=build_research_provider(channel, args.research_provider),
-                script_generator=build_script_generator(channel, args.script_generator),
-                scene_planner=build_scene_planner(channel, args.scene_planner),
-                narration_generator=build_narration_generator(channel, args.narration_provider),
+                research_provider=research_provider,
+                script_generator=script_generator,
+                scene_planner=scene_planner,
+                narration_generator=narration_generator,
                 timing_reconciler=SceneTimingReconciler(),
                 channel_config=channel,
                 visual_prompt_builder=DeterministicVisualPromptBuilder(),
-                visual_asset_provider=build_visual_asset_provider(channel, args.visual_provider),
-                artifact_store=FileSystemArtifactStore(
-                    args.output_dir or get_output_directory(Path("data/projects"))
-                ),
+                visual_asset_provider=visual_asset_provider,
+                artifact_store=store,
             )
             result = use_case.execute(args.topic)
+            render_use_case = RenderProjectUseCase(
+                store,
+                renderer,
+                channel.render,
+            )
+            render_use_case.execute(str(result.project_id))
         except ContentPipelineError as error:
             raise SystemExit(f"error: {error}") from error
         print(result.project_directory)
+    elif args.command == "render-project":
+        load_local_environment()
+        try:
+            channel = load_channel_config(args.channel)
+            output_root = args.output_dir or get_output_directory(Path("data/projects"))
+            store = FileSystemArtifactStore(output_root)
+            renderer = build_renderer(channel, args.renderer)
+            render_use_case = RenderProjectUseCase(store, renderer, channel.render)
+            artifact = render_use_case.execute(args.project_id)
+        except ContentPipelineError as error:
+            raise SystemExit(f"error: {error}") from error
+        print(output_root / args.project_id / artifact.file_path)
+
+
+def build_renderer(channel: ChannelConfig, renderer_override: str | None = None) -> Renderer:
+    """Select the configured renderer without an implicit fallback."""
+    provider = renderer_override or channel.render.provider
+    if provider == "ffmpeg":
+        return FFmpegRenderer()
+    raise ContentPipelineError(f"unsupported renderer: {provider}")
 
 
 def build_research_provider(

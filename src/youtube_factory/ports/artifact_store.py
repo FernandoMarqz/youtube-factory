@@ -6,6 +6,7 @@ from typing import Protocol
 from youtube_factory.domain.models import (
     ContentManifest,
     Narration,
+    RenderArtifact,
     ResearchResult,
     ScenePlan,
     Script,
@@ -14,6 +15,7 @@ from youtube_factory.domain.models import (
     VisualAssetManifest,
     VisualPromptPlan,
 )
+from youtube_factory.ports.renderer import RenderInputs
 from youtube_factory.ports.visuals import GeneratedVisualAsset
 
 
@@ -36,3 +38,11 @@ class ProjectArtifactStore(Protocol):
         manifest: ContentManifest,
     ) -> Path:
         """Write all artifacts and return the project directory."""
+
+    def load_render_inputs(self, project_id: str) -> RenderInputs:
+        """Read the persisted render inputs and resolve their project directory."""
+
+    def save_render(
+        self, project_id: str, artifact: RenderArtifact, renderer_identifier: str
+    ) -> None:
+        """Persist measured render metadata and extend the project manifest."""

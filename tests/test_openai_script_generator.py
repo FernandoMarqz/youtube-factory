@@ -62,13 +62,16 @@ def script_payload(**overrides: object) -> dict[str, object]:
 
 
 class FakeResponses:
-    def __init__(self, parsed: object) -> None:
-        self.parsed = parsed
+    def __init__(self, parsed: object | list[object]) -> None:
+        self.parsed = parsed if isinstance(parsed, list) else [parsed]
         self.kwargs: dict[str, object] = {}
+        self.calls: list[dict[str, object]] = []
 
     def parse(self, **kwargs: object) -> SimpleNamespace:
         self.kwargs = kwargs
-        return SimpleNamespace(output_parsed=self.parsed)
+        self.calls.append(kwargs)
+        index = min(len(self.calls) - 1, len(self.parsed) - 1)
+        return SimpleNamespace(output_parsed=self.parsed[index])
 
 
 def config(**overrides: object) -> OpenAIScriptConfig:
@@ -108,6 +111,11 @@ def test_request_uses_model_topic_research_and_structured_schema() -> None:
     assert all(fact in request for fact in research.key_facts)
     assert "Use only the supplied" in str(responses.kwargs["instructions"])
     assert "tools" not in responses.kwargs
+    assert len(responses.calls) == 1
+    assert "Target duration: about 35 seconds" in request
+    assert "range 25-45 seconds" in request
+    assert "Leave margin below the maximum" in request
+    assert "Language: es-ES" in request
 
 
 def test_arbitrary_topic_maps_to_consistent_grounded_script() -> None:
@@ -155,11 +163,134 @@ def test_duplicate_or_unknown_grounding_indices_are_rejected(indices: list[int])
 
 
 def test_script_outside_duration_bounds_is_rejected() -> None:
-    generator, _ = make_generator(script_payload(hook="Breve.", body="Muy breve.", ending="Fin."))
+    generator, responses = make_generator(
+        script_payload(hook="Breve.", body="Muy breve.", ending="Fin.")
+    )
     topic, research = topic_and_research()
 
     with pytest.raises(ScriptValidationError, match="duration"):
         generator.generate(topic, research)
+    assert len(responses.calls) == 2
+
+
+def sized_script(word_count: int) -> dict[str, object]:
+    """Return a structured payload whose deterministic estimate is word_count / 2.5."""
+    return script_payload(
+        hook="Inicio",
+        body=" ".join(["hecho"] * (word_count - 2)),
+        ending="Final",
+        supporting_fact_indices=[1],
+    )
+
+
+@pytest.mark.parametrize(
+    ("first_words", "second_words", "direction", "expected_seconds"),
+    [(125, 90, "too long", 36.0), (50, 85, "too short", 34.0)],
+)
+def test_one_grounded_rewrite_corrects_duration(
+    first_words: int, second_words: int, direction: str, expected_seconds: float
+) -> None:
+    generator, responses = make_generator([sized_script(first_words), sized_script(second_words)])
+    topic, research = topic_and_research()
+
+    script = generator.generate(topic, research)
+
+    assert script.estimated_duration_seconds == expected_seconds
+    assert script.claims == research.key_facts[:1]
+    assert len(responses.calls) == 2
+    assert all(call["text_format"] is OpenAIScriptResponse for call in responses.calls)
+    rewrite_input = str(responses.calls[1]["input"])
+    assert direction in rewrite_input
+    assert research.summary in rewrite_input
+    assert all(fact in rewrite_input for fact in research.key_facts)
+    assert "Original hook: Inicio" in rewrite_input
+    assert f"{first_words / 2.5:.1f} seconds" in rewrite_input
+    assert "Allowed: 25-45 seconds. Target: 35 seconds." in rewrite_input
+    assert "do not browse or add unsupported claims" in rewrite_input
+    if direction == "too long":
+        assert "Do not merely truncate the final sentence" in rewrite_input
+    else:
+        assert "Do not invent examples or claims merely to add length" in rewrite_input
+
+
+@pytest.mark.parametrize("first_words,second_words", [(125, 118), (50, 55)])
+def test_one_rewrite_still_outside_bounds_reports_timing_and_stops(
+    first_words: int, second_words: int
+) -> None:
+    generator, responses = make_generator([sized_script(first_words), sized_script(second_words)])
+    topic, research = topic_and_research()
+
+    with pytest.raises(ScriptValidationError) as failure:
+        generator.generate(topic, research)
+
+    assert len(responses.calls) == 2
+    assert f"estimated={second_words / 2.5:.1f}s" in str(failure.value)
+    assert "allowed=25.0-45.0s" in str(failure.value)
+    assert "target=35.0s" in str(failure.value)
+
+
+@pytest.mark.parametrize("words,bound", [(60, "min"), (100, "max")])
+def test_exact_duration_boundaries_are_accepted(words: int, bound: str) -> None:
+    overrides = {"min_duration_seconds": 24, "max_duration_seconds": 40}
+    generator, responses = make_generator(sized_script(words), **overrides)
+    topic, research = topic_and_research()
+
+    script = generator.generate(topic, research)
+
+    expected = 24.0 if bound == "min" else 40.0
+    assert script.estimated_duration_seconds == expected
+    assert len(responses.calls) == 1
+
+
+def test_duration_prompt_uses_configured_values() -> None:
+    generator, responses = make_generator(
+        sized_script(80),
+        target_duration_seconds=32,
+        min_duration_seconds=24,
+        max_duration_seconds=40,
+    )
+    topic, research = topic_and_research()
+
+    generator.generate(topic, research)
+
+    assert "Target duration: about 32 seconds" in str(responses.calls[0]["input"])
+    assert "range 24-40 seconds" in str(responses.calls[0]["input"])
+
+
+def test_rewrite_uses_configured_values_instead_of_channel_defaults() -> None:
+    generator, responses = make_generator(
+        [sized_script(110), sized_script(80)],
+        target_duration_seconds=32,
+        min_duration_seconds=24,
+        max_duration_seconds=40,
+    )
+    topic, research = topic_and_research()
+
+    script = generator.generate(topic, research)
+
+    assert script.estimated_duration_seconds == 32.0
+    assert len(responses.calls) == 2
+    assert "Current deterministic estimate: 44.0 seconds" in str(responses.calls[1]["input"])
+    assert "Allowed: 24-40 seconds. Target: 32 seconds." in str(responses.calls[1]["input"])
+
+
+def test_failed_rewrite_request_remains_provider_error() -> None:
+    class FailingRewriteResponses:
+        calls = 0
+
+        def parse(self, **kwargs: object) -> SimpleNamespace:
+            self.calls += 1
+            if self.calls == 2:
+                raise RuntimeError("provider unavailable")
+            return SimpleNamespace(output_parsed=sized_script(125))
+
+    responses = FailingRewriteResponses()
+    generator = OpenAIScriptGenerator(config(), client=SimpleNamespace(responses=responses))
+    topic, research = topic_and_research()
+
+    with pytest.raises(ScriptGenerationError, match="request failed"):
+        generator.generate(topic, research)
+    assert responses.calls == 2
 
 
 def test_research_must_belong_to_topic() -> None:

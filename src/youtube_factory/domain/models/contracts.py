@@ -113,6 +113,44 @@ class VisualAssetGeneratorMetadata(DomainModel):
     asset_count: PositiveSequence
 
 
+class RendererMetadata(DomainModel):
+    """Provider-neutral renderer identity in a project manifest."""
+
+    provider: NonEmptyText
+    identifier: NonEmptyText
+
+
+class RenderArtifact(DomainModel):
+    """Measured properties of a persisted rendered video."""
+
+    provider: NonEmptyText
+    file_path: NonEmptyText
+    media_type: Annotated[str, Field(pattern=r"^video/mp4$")] = "video/mp4"
+    duration_seconds: PositiveSeconds
+    width: Annotated[int, Field(gt=0)]
+    height: Annotated[int, Field(gt=0)]
+    frame_rate: PositiveSeconds
+    video_codec: NonEmptyText
+    audio_codec: NonEmptyText
+    pixel_format: NonEmptyText
+    file_size_bytes: Annotated[int, Field(gt=0)]
+
+    @model_validator(mode="after")
+    def has_project_relative_path(self) -> RenderArtifact:
+        path = PurePosixPath(self.file_path)
+        if (
+            path.is_absolute()
+            or ".." in path.parts
+            or "\\" in self.file_path
+            or ":" in self.file_path
+            or path.as_posix() != self.file_path
+        ):
+            raise ValueError("render path must be normalized and project-relative")
+        if path.suffix.lower() != ".mp4":
+            raise ValueError("render artifact must be an MP4")
+        return self
+
+
 class ContentManifest(DomainModel):
     """Stable inventory of artifacts produced by the content foundation pipeline."""
 
@@ -128,6 +166,7 @@ class ContentManifest(DomainModel):
     narration_generator: NarrationGeneratorMetadata | None = None
     timing_reconciliation_strategy: NonEmptyText | None = None
     visual_asset_generator: VisualAssetGeneratorMetadata | None = None
+    renderer: RendererMetadata | None = None
 
 
 class Scene(DomainModel):

@@ -4,7 +4,8 @@ AI-assisted platform for generating, rendering, reviewing, publishing, and analy
 
 ## Current stage
 
-Bootstrap / MVP architecture.
+Phase 5: provider-neutral FFmpeg rendering of persisted media. Rendering requires `ffmpeg` and
+`ffprobe` on PATH; the project does not download or bundle them.
 
 The immediate target is a local vertical slice:
 
@@ -58,11 +59,13 @@ python -m youtube_factory status
 
 ## Phase 1: local content engine
 
-Create deterministic research and a Short script for the current reference topic:
+Create the deterministic offline Short for the current reference topic:
 
 ```powershell
 python -m youtube_factory create-content `
-  --topic "¿Por qué las tapas de alcantarilla son redondas?"
+  --topic "¿Por qué las tapas de alcantarilla son redondas?" `
+  --narration-provider local `
+  --renderer ffmpeg
 ```
 
 The command prints its project directory and writes these inspectable artifacts:
@@ -79,19 +82,56 @@ data/projects/<project-id>/
 ├── visual-prompts.json
 ├── visual-assets.json
 ├── assets/scene-XX.png
+├── render.json
+├── render/short.mp4
 └── manifest.json
 ```
 
 Use `--output-dir <path>` to choose another root. The project identifier and local-provider JSON
 content are stable for the same input. The local research, script and scene-planning adapters remain
 intentional deterministic fixtures for the reference topic. OpenAI-backed implementations can now
-handle arbitrary topics while the local fixtures preserve offline regression coverage. Rendering,
-databases and publishing are not implemented yet.
+handle arbitrary topics while the local fixtures preserve offline regression coverage. Rendering is
+available in Phase 5; databases and publishing are not implemented yet.
 
 `scenes.json` is a deterministic audiovisual timeline. Each scene has a narration segment,
 continuous start/end/duration estimates, a separate visual instruction and purpose, an asset type,
 and optional on-screen text or transition suggestion. It is planning data only: future TTS, visual
-assets, subtitles, transitions and rendering consume it without changing its creative intent.
+assets consume it without changing its creative intent. Rendering uses `timed-scenes.json`, whose
+boundaries come from the measured narration WAV, rather than the provisional `scenes.json` timings.
+
+## Phase 5: render a vertical MP4
+
+Offline end-to-end generation (the local narration is a silent timing fixture):
+
+```powershell
+python -m youtube_factory create-content `
+  --channel engineering-es `
+  --topic "¿Por qué las tapas de alcantarilla son redondas?" `
+  --research-provider local `
+  --script-generator local `
+  --scene-planner local `
+  --narration-provider local `
+  --visual-provider local-placeholder `
+  --renderer ffmpeg
+```
+
+To render existing media, including previously paid narration and images, without invoking any
+research, script, scene, TTS or image provider:
+
+```powershell
+python -m youtube_factory render-project `
+  --project-id <project-id> `
+  --channel engineering-es `
+  --renderer ffmpeg
+```
+
+Use `--output-dir <path>` on either command if the project is outside `data/projects`.
+The renderer uses one persisted PNG per timed scene. It scales each image proportionally to cover
+1080x1920 and crops the overflow symmetrically. Hard cuts join the static scenes; the persisted
+WAV becomes the AAC audio track. The target is 30 fps H.264/yuv420p in MP4. No captions,
+animation, transitions or music are rendered yet. The final file is `render/short.mp4` and its
+ffprobe-measured metadata is in `render.json`. `manifest.json` lists both and identifies the
+renderer. Duration may differ from the WAV by at most two video frames (frame and AAC rounding).
 
 ## Phase 4: visual prompts and assets
 
@@ -194,7 +234,10 @@ in `research.json`; raw pages and SDK responses are not persisted.
 only supplied research facts. Structured output contains hook, body, ending, hook type and selected
 fact indices. Python constructs `full_narration`, copies the referenced research facts into
 `Script.claims`, and estimates duration deterministically at 150 spoken words per minute. Scripts
-outside the channel's configured Short-duration bounds fail before downstream paid stages.
+outside the channel's configured Short-duration bounds receive at most one grounded OpenAI
+rewrite. Python recalculates the duration and rejects a second out-of-range result before
+downstream stages. The configured content target/min/max values drive both requests; only the
+accepted script is persisted.
 
 Provider precedence for research, script, scene planning, narration and visuals is:
 
@@ -212,7 +255,8 @@ python -m youtube_factory create-content `
   --script-generator openai `
   --scene-planner openai `
   --narration-provider local `
-  --visual-provider local-placeholder
+  --visual-provider local-placeholder `
+  --renderer ffmpeg
 ```
 
 This intentionally pays only for web-backed research, script generation and scene planning. A full
@@ -230,7 +274,8 @@ python -m youtube_factory create-content `
   --script-generator openai `
   --scene-planner openai `
   --narration-provider openai `
-  --visual-provider openai
+  --visual-provider openai `
+  --renderer ffmpeg
 ```
 
 ## Phase 3: narration and timing
