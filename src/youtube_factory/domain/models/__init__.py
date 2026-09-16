@@ -3,6 +3,8 @@
 from youtube_factory.domain.models.contracts import (
     AlignedWord,
     Asset,
+    AudioMixerMetadata,
+    AudioMixReport,
     CaptionAlignmentMetadata,
     CaptionCue,
     CaptionPlan,
@@ -36,6 +38,8 @@ from youtube_factory.domain.models.contracts import (
 __all__ = [
     "Asset",
     "AlignedWord",
+    "AudioMixerMetadata",
+    "AudioMixReport",
     "CaptionAlignmentMetadata",
     "CaptionCue",
     "CaptionPlan",

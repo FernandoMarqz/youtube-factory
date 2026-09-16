@@ -8,8 +8,9 @@ pytest, ruff and mypy are the current baseline. The architecture is a modular mo
 domain contracts, application use cases/services, provider ports, infrastructure adapters and a
 CLI composition root. PostgreSQL, FastAPI, n8n, publishing and analytics are deferred.
 
-Phase 6 adds canonical-text captions, local synthetic and OpenAI acoustic word alignment,
-deterministic cue planning and FFmpeg/libass burn-in. Phase 5 was verified with a real MP4. FFmpeg
+Phase 7 adds offline narration loudness normalization, optional local music, ducking and encoded
+audio validation to the existing FFmpeg renderer. Phase 6B per-word ASS emphasis remains intact;
+the real WAV, canonical caption text and `TimedScenePlan` remain authoritative. FFmpeg
 9.0.1 was already installed on the development machine through winget, but its bin directory was
 missing from the shell's
 PATH. A temporary PATH addition allowed the full offline render and test suite to pass. No
@@ -56,14 +57,20 @@ hard cuts. Images scale proportionally to cover 1080x1920 and are center-cropped
 modification. Output is 30 fps H.264/AAC/yuv420p MP4 according to typed channel configuration.
 `ffprobe` checks streams, codecs, size, FPS and duration within two frames of the timed narration.
 FFmpeg executables are discovered through PATH, with no bundled binary or hardcoded machine path.
-ASS caption chunks can be burned in after scene concatenation without changing audio mapping.
-No music, motion, per-word highlighting or publishing are implemented.
+ASS captions are burned in after scene concatenation without changing audio mapping. The renderer
+first analyzes narration with `loudnorm`, then applies measured two-pass normalization. Music is
+off by default; when enabled, one explicitly supplied project-relative audio file is validated,
+looped or allowed to end, gain-adjusted, faded and ducked from the narration sidechain. Mixing
+uses `amix=normalize=0`; a limiter leaves 1 dB AAC headroom. The final stereo 48 kHz AAC is
+measured again. Audible normalized output must land within 2 LU of target and true peak within
+0.25 dB of the configured ceiling. Silent local WAV fixtures skip the unattainable LUFS target.
+No scene motion, text animation, AI music or publishing is implemented.
 
 ## Configuration And Artifacts
 
 `.env` contains only secrets and machine-local output root. Version-controlled
 `config/channels/engineering-es.yaml` has typed immutable research, script, scene planning,
-narration, visuals, render, captions and publishing sections. CLI override wins over channel
+narration, visuals, render, audio, captions and publishing sections. CLI override wins over channel
 settings; there
 is no implicit fallback. The channel defaults to local research/script/planning/visuals, OpenAI
 narration, and FFmpeg rendering. Use the local narration override for an offline run.
@@ -72,7 +79,7 @@ Each project is under `data/projects/<project-id>/` by default, unless `.env` or
 overrides the root. It contains `topic.json`,
 `research.json`, `script.json`, `scenes.json`, `narration.json`, `narration.wav`,
 `timed-scenes.json`, `visual-prompts.json`, `visual-assets.json`, `assets/scene-XX.png`,
-`word-alignment.json`, `captions.json`, `captions/captions.ass`, `render.json`, `render/short.mp4`
+`word-alignment.json`, `captions.json`, `captions/captions.ass`, `audio-mix.json`, `render.json`, `render/short.mp4`
 and `manifest.json`. The manifest inventories artifacts and provider identities, including the
 renderer. Intermediate files are product artifacts, not temp
 files. The render-only use case validates stored media before rendering; it makes no upstream
@@ -86,13 +93,30 @@ matching tolerates punctuation, case and accents while preserving canonical disp
 adapter repairs isolated zero-length word intervals using no more than 20 ms of neighboring time;
 fully degenerate and non-monotonic responses still fail. The planner
 groups roughly 2-5 words with punctuation/duration limits and at most two lines, checking the
-actual line break as it groups. ASS uses bold white Arial 64, dark outline, small shadow and
+actual line break as it groups. New cues persist half-open word-index ranges. Old Phase 6 cues
+without indexes resolve sequentially only if exact canonical tokens and timing containment
+match. `captions.emphasis` has validated `#RRGGBB` active/inactive colors, `mode: word|none` and
+an enable switch. Dynamic ASS uses sequential, non-overlapping full-cue states: fixed text,
+wrap and geometry, with only the active acoustic word colored. Silence gaps show no highlight.
+Absolute word boundaries are rounded independently to centiseconds. Turning emphasis off retains
+static chunks. ASS defaults to bold Arial 64, white inactive text, warm yellow active text, dark
+outline, small shadow and
 450px bottom margin. The fixed relative libass
 path is resolved from the project working directory to avoid Windows filter escaping.
 The Phase 6 offline CLI smoke test produced a captioned 1080x1920, 30 fps H.264/AAC/yuv420p
-MP4 at 36.733333 seconds. A frame was visually checked for readable two-line safe-area text.
-With FFmpeg on PATH, all 184 tests passed; ruff, mypy and `git diff --check` passed. No paid
-caption alignment call was made during implementation.
+MP4 at 36.733333 seconds. Phase 6B validated a real saved legacy plan (112 words, 27 cues)
+read-only and generated 115 dynamic ASS events. FFmpeg-backed automated tests pass without any
+paid call. Phase 7 audio config targets -16 LUFS and -1.5 dBTP; an explicitly supplied music
+file must reside within each project (for example `assets/music/background.mp3`) and have suitable
+YouTube usage rights. `audio-mix.json` stores actual input/final measurements and applied settings;
+the manifest stores only mixer identity and music-enabled status. `render-project` changes audio
+offline and does not rewrite WAV, visuals or semantic caption JSON. Listen on several speakers
+before publication; synthetic tests cannot judge music taste or perceived pumping.
+
+A copied 42-second OpenAI-narrated project was rerendered offline with music disabled. Its source
+measured -18.62 LUFS; final AAC measured -16.18 LUFS and -2.42 dBTP at stereo 48 kHz. Source WAV
+SHA-256 remained identical. The synthetic music/caption fixture verifies looping, ducking and
+final media contracts; no new OpenAI call was made.
 
 ## Commands
 
@@ -109,7 +133,7 @@ python -m youtube_factory caption-project `
   --caption-alignment openai --output-dir output
 
 python -m youtube_factory render-project `
-  --project-id <project-id> --channel engineering-es --renderer ffmpeg
+  --project-id <project-id> --channel engineering-es --renderer ffmpeg --output-dir output
 
 python -m pytest -q -p no:cacheprovider --basetemp .pytest_tmp
 python -m ruff check .
@@ -119,9 +143,10 @@ git diff --check
 ```
 
 All commands accept `--output-dir <path>`. `caption-project` aligns saved narration without
-regenerating creative assets. `render-project` restyles persisted `captions.json` and renders
-existing paid WAV/images without repeating OpenAI calls. Projects without captions still render
-as Phase 5. The Phase 5 offline run produced
+regenerating creative assets. `render-project` rebuilds ASS from persisted `captions.json` and
+`word-alignment.json`, then renders saved WAV/images with zero OpenAI calls. It never rewrites
+those semantic JSON files. Projects without captions still render as Phase 5. The Phase 5 offline
+run produced
 `output/2be33118-f60f-5d27-afcb-c9217dad79f5/render/short.mp4`: 1080x1920, 30 fps, H.264,
 AAC, yuv420p, 36.733333 seconds and 128,952 bytes. The local WAV lasts 36.72 seconds; its audio
 is intentionally silent. `render.json` and `manifest.json` were verified, and `render-project`
@@ -129,6 +154,5 @@ successfully rerendered the same saved inputs.
 
 ## Next Milestone
 
-Phase 6B: optional per-word caption highlighting/emphasis driven by existing word alignment,
-without changing canonical text or timing architecture. Human review remains required before
-publication.
+Phase 8: subtle deterministic Ken Burns scene motion and hard-cut polish without changing
+authoritative scene timing. Human review remains required before publication.

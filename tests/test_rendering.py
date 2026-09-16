@@ -305,7 +305,7 @@ def test_subprocess_failures_and_probe_validation(
                 "avg_frame_rate": "30/1",
                 "pix_fmt": "yuv420p",
             },
-            {"codec_type": "audio", "codec_name": "aac"},
+            {"codec_type": "audio", "codec_name": "aac", "sample_rate": "48000", "channels": 2},
         ],
         "format": {"duration": "5.0"},
     }

@@ -1,5 +1,6 @@
 """Typed, immutable editorial configuration loaded outside the domain."""
 
+from pathlib import PurePosixPath
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -144,6 +145,51 @@ class RenderConfig(ChannelConfigModel):
         return self
 
 
+class NarrationAudioConfig(ChannelConfigModel):
+    normalize: bool = False
+    target_lufs: Annotated[float, Field(ge=-30, le=-10, allow_inf_nan=False)] = -16.0
+    true_peak_db: Annotated[float, Field(ge=-9, le=-0.1, allow_inf_nan=False)] = -1.5
+
+
+class MusicConfig(ChannelConfigModel):
+    enabled: bool = False
+    file_path: NonEmptyText | None = None
+    gain_db: Annotated[float, Field(ge=-60, le=0, allow_inf_nan=False)] = -22.0
+    loop: bool = True
+    fade_in_seconds: Annotated[float, Field(ge=0, allow_inf_nan=False)] = 0.6
+    fade_out_seconds: Annotated[float, Field(ge=0, allow_inf_nan=False)] = 1.2
+
+    @model_validator(mode="after")
+    def valid_music_source(self) -> "MusicConfig":
+        if self.enabled and not self.file_path:
+            raise ValueError("enabled music requires a file_path")
+        if self.file_path:
+            path = PurePosixPath(self.file_path)
+            if (
+                path.is_absolute()
+                or ".." in path.parts
+                or "\\" in self.file_path
+                or ":" in self.file_path
+                or path.as_posix() != self.file_path
+            ):
+                raise ValueError("music file_path must be normalized and project-relative")
+        return self
+
+
+class DuckingConfig(ChannelConfigModel):
+    enabled: bool = True
+    threshold: Annotated[float, Field(ge=0.000976563, le=1, allow_inf_nan=False)] = 0.03
+    ratio: Annotated[float, Field(ge=1, le=20, allow_inf_nan=False)] = 8.0
+    attack_ms: Annotated[float, Field(ge=0.01, le=2000, allow_inf_nan=False)] = 80.0
+    release_ms: Annotated[float, Field(ge=0.01, le=9000, allow_inf_nan=False)] = 350.0
+
+
+class AudioConfig(ChannelConfigModel):
+    narration: NarrationAudioConfig = Field(default_factory=NarrationAudioConfig)
+    music: MusicConfig = Field(default_factory=MusicConfig)
+    ducking: DuckingConfig = Field(default_factory=DuckingConfig)
+
+
 class CaptionAlignmentConfig(ChannelConfigModel):
     provider: Literal["local", "openai"] = "local"
     model: NonEmptyText | None = None
@@ -179,11 +225,22 @@ class CaptionStyleConfig(ChannelConfigModel):
     shadow: bool = True
 
 
+CaptionColor = Annotated[str, Field(pattern=r"^#[0-9A-Fa-f]{6}$")]
+
+
+class CaptionEmphasisConfig(ChannelConfigModel):
+    enabled: bool = False
+    mode: Literal["none", "word"] = "word"
+    active_color: CaptionColor = "#FFD54A"
+    inactive_color: CaptionColor = "#FFFFFF"
+
+
 class CaptionConfig(ChannelConfigModel):
     enabled: bool = False
     alignment: CaptionAlignmentConfig = Field(default_factory=CaptionAlignmentConfig)
     grouping: CaptionGroupingConfig = Field(default_factory=CaptionGroupingConfig)
     style: CaptionStyleConfig = Field(default_factory=CaptionStyleConfig)
+    emphasis: CaptionEmphasisConfig = Field(default_factory=CaptionEmphasisConfig)
 
 
 class ChannelConfig(ChannelConfigModel):
@@ -198,5 +255,6 @@ class ChannelConfig(ChannelConfigModel):
     narration: NarrationConfig
     visuals: VisualConfig
     render: RenderConfig
+    audio: AudioConfig = Field(default_factory=AudioConfig)
     captions: CaptionConfig = Field(default_factory=CaptionConfig)
     publishing: PublishingConfig

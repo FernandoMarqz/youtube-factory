@@ -16,6 +16,7 @@ from youtube_factory.application.exceptions import (
 )
 from youtube_factory.application.services import validate_png, validate_wav_narration
 from youtube_factory.domain.models import (
+    AudioMixerMetadata,
     CaptionAlignmentMetadata,
     CaptionPlan,
     CaptionPlannerMetadata,
@@ -137,14 +138,32 @@ class FileSystemArtifactStore:
             updated = manifest.model_copy(
                 update={
                     "artifacts": tuple(
-                        dict.fromkeys((*manifest.artifacts, "render.json", artifact.file_path))
+                        dict.fromkeys(
+                            (
+                                *manifest.artifacts,
+                                "render.json",
+                                artifact.file_path,
+                                *(("audio-mix.json",) if artifact.audio_mix else ()),
+                            )
+                        )
                     ),
                     "renderer": RendererMetadata(
                         provider=artifact.provider, identifier=renderer_identifier
                     ),
+                    "audio_mixer": (
+                        AudioMixerMetadata(
+                            provider=artifact.audio_mix.provider,
+                            identifier=artifact.audio_mix.identifier,
+                            music_enabled=artifact.audio_mix.music_enabled,
+                        )
+                        if artifact.audio_mix
+                        else manifest.audio_mixer
+                    ),
                 }
             )
             self._write_model(directory / "render.json", artifact)
+            if artifact.audio_mix is not None:
+                self._write_model(directory / "audio-mix.json", artifact.audio_mix)
             self._write_model(directory / "manifest.json", updated)
         except OSError as error:
             raise ArtifactPersistenceError("could not persist render metadata") from error
@@ -213,6 +232,17 @@ class FileSystemArtifactStore:
             return CaptionPlan.model_validate_json(path.read_text("utf-8"))
         except (OSError, ValueError) as error:
             raise CaptionArtifactError(f"invalid caption plan: {error}") from error
+
+    def load_word_alignment(self, project_id: str) -> WordAlignment:
+        directory = self._project_directory(project_id)
+        try:
+            return WordAlignment.model_validate_json(
+                (directory / "word-alignment.json").read_text("utf-8")
+            )
+        except (OSError, ValueError) as error:
+            raise CaptionArtifactError(
+                "missing or invalid word-alignment.json; run caption-project first"
+            ) from error
 
     def save_caption_ass(self, project_id: str, ass_text: str) -> None:
         directory = self._project_directory(project_id)

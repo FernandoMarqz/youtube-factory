@@ -56,6 +56,25 @@ render:
   audio_bitrate: 192k
   pixel_format: yuv420p
 
+audio:
+  narration:
+    normalize: true
+    target_lufs: -16.0
+    true_peak_db: -1.5
+  music:
+    enabled: false
+    file_path: null
+    gain_db: -22.0
+    loop: true
+    fade_in_seconds: 0.6
+    fade_out_seconds: 1.2
+  ducking:
+    enabled: true
+    threshold: 0.03
+    ratio: 8.0
+    attack_ms: 80
+    release_ms: 350
+
 captions:
   enabled: true
   alignment:
@@ -75,3 +94,8 @@ captions:
     margin_vertical: 450
     outline_width: 4
     shadow: true
+  emphasis:
+    enabled: true
+    mode: word
+    active_color: "#FFD54A"
+    inactive_color: "#FFFFFF"

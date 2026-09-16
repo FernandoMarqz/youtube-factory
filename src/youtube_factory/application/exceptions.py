@@ -101,6 +101,18 @@ class RenderValidationError(RenderError):
     """Raised when render inputs or output media fail validation."""
 
 
+class AudioProcessingError(RenderError):
+    """Raised when deterministic loudness analysis or mixing fails."""
+
+
+class MusicAssetError(AudioProcessingError):
+    """Raised when an explicitly configured music source cannot be used."""
+
+
+class AudioValidationError(RenderValidationError):
+    """Raised when the rendered audio violates the configured safety bounds."""
+
+
 class CaptionConfigurationError(ContentPipelineError):
     """Raised when caption provider settings are incomplete."""
 

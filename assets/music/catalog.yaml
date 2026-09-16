@@ -1,0 +1,308 @@
+version: 1
+
+tracks:
+  - id: space-navigator-sarah-the-instrumentalist
+    title: Space Navigator
+    artist: Sarah, The Instrumentalist
+    file_path: futuristic/space-navigator-sarah-the-instrumentalist.mp3
+    category: futuristic
+    energy: medium
+    moods:
+      - futuristic
+      - curious
+      - mysterious
+      - modern
+    genres:
+      - electronic
+      - ambient
+    niches:
+      - engineering
+      - technology
+      - science
+      - space
+      - ai
+    suitable_topics:
+      - space
+      - artificial_intelligence
+      - robotics
+      - computing
+      - future_technology
+      - electricity
+    source: youtube-audio-library
+    source_url: https://www.youtube.com/audiolibrary
+    license_type: youtube-audio-library
+    attribution_required: false
+    attribution_text: null
+
+  - id: moon-rock-nathan-moore
+    title: Moon Rock
+    artist: Nathan Moore
+    file_path: futuristic/moon-rock-nathan-moore.mp3
+    category: futuristic
+    energy: medium
+    moods:
+      - curious
+      - scientific
+      - atmospheric
+      - mysterious
+    genres:
+      - electronic
+      - ambient
+    niches:
+      - science
+      - space
+      - technology
+    suitable_topics:
+      - space
+      - astronomy
+      - physics
+      - planets
+      - satellites
+    source: youtube-audio-library
+    source_url: https://www.youtube.com/audiolibrary
+    license_type: youtube-audio-library
+    attribution_required: false
+    attribution_text: null
+
+  - id: memory-card-full-birocratic
+    title: Memory Card Full
+    artist: Birocratic
+    file_path: tech/memory-card-full-birocratic.mp3
+    category: tech
+    energy: medium
+    moods:
+      - technological
+      - playful
+      - curious
+      - modern
+    genres:
+      - electronic
+      - groove
+    niches:
+      - technology
+      - engineering
+      - computing
+    suitable_topics:
+      - computers
+      - programming
+      - data
+      - electronics
+      - internet
+      - hardware
+      - software
+    source: youtube-audio-library
+    source_url: https://www.youtube.com/audiolibrary
+    license_type: youtube-audio-library
+    attribution_required: false
+    attribution_text: null
+
+  - id: touch-patrick-patrikios
+    title: Touch
+    artist: Patrick Patrikios
+    file_path: tech/touch-patrick-patrikios.mp3
+    category: tech
+    energy: medium
+    moods:
+      - modern
+      - technological
+      - clean
+      - optimistic
+    genres:
+      - electronic
+      - ambient
+    niches:
+      - technology
+      - engineering
+      - innovation
+    suitable_topics:
+      - inventions
+      - technology
+      - robotics
+      - electronics
+      - innovation
+      - modern_engineering
+    source: youtube-audio-library
+    source_url: https://www.youtube.com/audiolibrary
+    license_type: youtube-audio-library
+    attribution_required: false
+    attribution_text: null
+
+  - id: new-morning-tracktribe
+    title: New Morning
+    artist: TrackTribe
+    file_path: educational/new-morning-tracktribe.mp3
+    category: educational
+    energy: low-medium
+    moods:
+      - positive
+      - calm
+      - curious
+      - clean
+    genres:
+      - ambient
+      - acoustic
+    niches:
+      - engineering
+      - science
+      - education
+    suitable_topics:
+      - engineering
+      - structures
+      - everyday_science
+      - explanations
+      - infrastructure
+    source: youtube-audio-library
+    source_url: https://www.youtube.com/audiolibrary
+    license_type: youtube-audio-library
+    attribution_required: false
+    attribution_text: null
+
+  - id: know-myself-patrick-patrikios
+    title: Know Myself
+    artist: Patrick Patrikios
+    file_path: educational/know-myself-patrick-patrikios.mp3
+    category: educational
+    energy: low
+    moods:
+      - serious
+      - thoughtful
+      - technical
+      - calm
+    genres:
+      - ambient
+      - electronic
+    niches:
+      - engineering
+      - science
+      - education
+    suitable_topics:
+      - structural_engineering
+      - materials
+      - physics
+      - infrastructure
+      - technical_explanations
+    source: youtube-audio-library
+    source_url: https://www.youtube.com/audiolibrary
+    license_type: youtube-audio-library
+    attribution_required: false
+    attribution_text: null
+
+  - id: top-ten-jeremy-blake
+    title: Top Ten
+    artist: Jeremy Blake
+    file_path: energetic/top-ten-jeremy-blake.mp3
+    category: energetic
+    energy: high
+    moods:
+      - energetic
+      - playful
+      - surprising
+      - upbeat
+    genres:
+      - electronic
+    niches:
+      - engineering
+      - technology
+      - science
+    suitable_topics:
+      - surprising_facts
+      - fast_explanations
+      - unusual_engineering
+      - curiosities
+      - inventions
+    source: youtube-audio-library
+    source_url: https://www.youtube.com/audiolibrary
+    license_type: youtube-audio-library
+    attribution_required: false
+    attribution_text: null
+
+  - id: dynamite-patrick-patrikios
+    title: Dynamite
+    artist: Patrick Patrikios
+    file_path: energetic/dynamite-patrick-patrikios.mp3
+    category: energetic
+    energy: high
+    moods:
+      - energetic
+      - powerful
+      - modern
+      - exciting
+    genres:
+      - electronic
+      - rock
+    niches:
+      - engineering
+      - technology
+    suitable_topics:
+      - machines
+      - megastructures
+      - engines
+      - energy
+      - construction
+      - transportation
+    source: youtube-audio-library
+    source_url: https://www.youtube.com/audiolibrary
+    license_type: youtube-audio-library
+    attribution_required: false
+    attribution_text: null
+
+  - id: lands-unknown-futuremono
+    title: Lands Unknown
+    artist: Futuremono
+    file_path: exploration/lands-unknown-futuremono.mp3
+    category: exploration
+    energy: medium
+    moods:
+      - exploratory
+      - mysterious
+      - curious
+      - cinematic
+    genres:
+      - electronic
+      - ambient
+    niches:
+      - engineering
+      - science
+      - technology
+    suitable_topics:
+      - discoveries
+      - mysteries
+      - infrastructure
+      - extreme_engineering
+      - unusual_designs
+      - exploration
+    source: youtube-audio-library
+    source_url: https://www.youtube.com/audiolibrary
+    license_type: youtube-audio-library
+    attribution_required: false
+    attribution_text: null
+
+  - id: welcome-anno-domini-beats
+    title: Welcome
+    artist: Anno Domini Beats
+    file_path: exploration/welcome-anno-domini-beats.mp3
+    category: exploration
+    energy: medium-high
+    moods:
+      - upbeat
+      - accessible
+      - playful
+      - curious
+    genres:
+      - hip-hop
+      - electronic
+    niches:
+      - technology
+      - science
+      - engineering
+    suitable_topics:
+      - curiosities
+      - everyday_engineering
+      - surprising_facts
+      - technology
+      - inventions
+    source: youtube-audio-library
+    source_url: https://www.youtube.com/audiolibrary
+    license_type: youtube-audio-library
+    attribution_required: false
+    attribution_text: null

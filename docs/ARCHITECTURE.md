@@ -14,6 +14,10 @@ Topic -> ResearchResult -> Script -> ScenePlan -> Narration + narration.wav
       -> ASS -> Renderer -> RenderArtifact
 ```
 
+The render input also carries typed audio intent: persisted narration WAV plus optional explicit
+project-local music. Audio analysis/mixing is contained in the FFmpeg adapter, not in domain
+contracts or the creative pipeline.
+
 `CreateContentUseCase` orchestrates the creative stages and persists their artifacts through
 `ProjectArtifactStore`. The CLI then invokes `RenderProjectUseCase`, which loads those persisted
 media artifacts through the same store and calls a provider-neutral `Renderer`. `render-project`
@@ -47,7 +51,10 @@ Caption text comes only from `Narration.narration_text`; transcription is timing
 OpenAI adapter uses `whisper-1` verbose JSON word timestamps, then normalized character sequence
 alignment to reconcile punctuation, case, quotes and accents. At least 90% of canonical tokens
 must match. Local alignment is marked synthetic. A deterministic planner groups aligned words;
-ASS generation is derived from the semantic caption plan and channel style.
+ASS generation is derived from the semantic caption plan, persisted word alignment and channel
+style. Phase 6B stores contiguous word-index ranges on new cues; old cues resolve against the
+canonical word sequence with exact token and timestamp-containment checks. The alignment and
+cue grouping algorithms are unchanged.
 
 ## Timing And Media
 
@@ -68,7 +75,21 @@ When a caption plan exists and captions are enabled, FFmpeg appends a libass fil
 concatenation. The ASS path is fixed and project-relative, and FFmpeg runs with the project as its
 working directory to avoid Windows drive-colon and space escaping. Caption burn-in leaves audio
 mapping unchanged. The persisted WAV is encoded as AAC alongside H.264 video in an MP4. A
-temporary `.short-part.mp4`
+dynamic ASS file uses sequential, non-overlapping full-caption events rather than overlapping
+text layers or karaoke tags. Every state shares the same two-line wrap and position; an inline
+ASS primary-color override marks only the word active at the persisted acoustic time. Silence
+gaps have no highlighted word. Event boundaries use independently rounded absolute centiseconds,
+so there is no accumulated timing drift. `render-project` rebuilds ASS from both semantic JSON
+artifacts without an alignment or creative provider call. Phase 7 extends the same renderer's
+audio path: it measures the source WAV with `loudnorm`, applies second-pass normalization, and
+optionally loads one validated project-local music file. Music is resampled to stereo,
+gain-adjusted, looped or ended naturally, trimmed, faded and ducked by the narration sidechain.
+`amix=normalize=0` preserves narration level; a limiter with 1 dB encoding headroom protects the
+mix. The AAC output is stereo 48 kHz. A second measurement of the encoded MP4 validates
+integrated LUFS (within 2 LU when audible normalization is enabled) and true peak (ceiling plus
+at most 0.25 dB). Silent local WAV fixtures skip the unattainable LUFS target. Source media is
+never rewritten.
+A temporary `.short-part.mp4`
 under the project's `render/` directory is replaced with `short.mp4` only after ffprobe validates
 the file. No scene clips or OS-global temporary files are needed.
 
@@ -97,6 +118,7 @@ data/projects/<project-id>/
   word-alignment.json
   captions.json
   captions/captions.ass
+  audio-mix.json
   render.json
   render/short.mp4
   manifest.json
@@ -105,5 +127,6 @@ data/projects/<project-id>/
 The artifact store validates persisted WAV, scene count/sequence and PNG content before passing
 render inputs to the renderer. It writes `render.json` and extends `manifest.json` only after a
 successful render. Source JSON and PNG/WAV artifacts remain inspectable for retry and review.
-Caption chunks are burned in; per-word animation, music, motion, publishing and analytics are
-later work.
+`audio-mix.json` contains actual measurements and mix settings; manifest metadata identifies the
+audio mixer without duplicating the report. Caption chunks and static per-word color emphasis
+remain intact. Bouncing/scaling text, scene motion, publishing and analytics are later work.

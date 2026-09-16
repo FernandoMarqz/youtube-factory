@@ -2,9 +2,13 @@
 
 import re
 
-from youtube_factory.application.config import CaptionGroupingConfig, CaptionStyleConfig
+from youtube_factory.application.config import (
+    CaptionEmphasisConfig,
+    CaptionGroupingConfig,
+    CaptionStyleConfig,
+)
 from youtube_factory.application.exceptions import CaptionPlanningError
-from youtube_factory.domain.models import CaptionCue, CaptionPlan, WordAlignment
+from youtube_factory.domain.models import AlignedWord, CaptionCue, CaptionPlan, WordAlignment
 
 
 class CaptionPlanner:
@@ -79,6 +83,8 @@ class CaptionPlanner:
                     text=text,
                     start_seconds=words[group[0]].start_seconds,
                     end_seconds=words[group[-1]].end_seconds,
+                    word_start_index=group[0],
+                    word_end_index=group[-1] + 1,
                 )
             )
         return CaptionPlan(topic_id=alignment.topic_id, language=language, cues=cues)
@@ -107,19 +113,125 @@ def _can_wrap(text: str, width: int) -> bool:
     return True
 
 
-def _ass_time(seconds: float) -> str:
-    centiseconds = round(seconds * 100)
+def _ass_centiseconds(seconds: float) -> int:
+    return round(seconds * 100)
+
+
+def _ass_time(centiseconds: int) -> str:
     hours, remainder = divmod(centiseconds, 360000)
     minutes, remainder = divmod(remainder, 6000)
     whole_seconds, fraction = divmod(remainder, 100)
     return f"{hours}:{minutes:02d}:{whole_seconds:02d}.{fraction:02d}"
 
 
+def _ass_color(rgb: str, alpha: bool = False) -> str:
+    red, green, blue = rgb[1:3], rgb[3:5], rgb[5:7]
+    return f"&H{'00' if alpha else ''}{blue}{green}{red}&"
+
+
+def _cue_word_ranges(plan: CaptionPlan, alignment: WordAlignment) -> list[tuple[int, int]]:
+    """Validate explicit indexes or deterministically resolve legacy Phase 6 cues."""
+    if plan.topic_id != alignment.topic_id:
+        raise CaptionPlanningError("caption plan and word alignment belong to different topics")
+    ranges: list[tuple[int, int]] = []
+    next_index = 0
+    for cue in plan.cues:
+        tokens = cue.text.split()
+        start = cue.word_start_index if cue.word_start_index is not None else next_index
+        end = cue.word_end_index if cue.word_end_index is not None else start + len(tokens)
+        if start != next_index or end != start + len(tokens) or end > len(alignment.words):
+            raise CaptionPlanningError(f"caption cue {cue.sequence} has invalid word indexes")
+        words = alignment.words[start:end]
+        if [word.text for word in words] != tokens:
+            raise CaptionPlanningError(
+                f"caption cue {cue.sequence} does not match canonical aligned words; "
+                "regenerate captions with caption-project"
+            )
+        if any(
+            word.start_seconds < cue.start_seconds - 0.001
+            or word.end_seconds > cue.end_seconds + 0.001
+            for word in words
+        ):
+            raise CaptionPlanningError(f"caption cue {cue.sequence} has words outside its interval")
+        ranges.append((start, end))
+        next_index = end
+    if next_index != len(alignment.words):
+        raise CaptionPlanningError("caption cues do not cover all aligned words")
+    return ranges
+
+
+def _escape_ass_text(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}")
+
+
+def _cue_text(cue: CaptionCue, line_width: int, active_index: int | None, active_color: str) -> str:
+    wrapped = _wrap(cue.text, line_width)
+    line_break_at = len(wrapped.split("\\N", 1)[0].split()) if "\\N" in wrapped else None
+    pieces: list[str] = []
+    for index, token in enumerate(cue.text.split()):
+        if index:
+            pieces.append("\\N" if index == line_break_at else " ")
+        escaped = _escape_ass_text(token)
+        if index == active_index:
+            pieces.append("{\\1c" + active_color + "}" + escaped + "{\\r}")
+        else:
+            pieces.append(escaped)
+    return "".join(pieces)
+
+
+def _dynamic_events(
+    cue: CaptionCue, words: list[AlignedWord], line_width: int, active_color: str
+) -> list[tuple[int, int, str]]:
+    """Build states from independently rounded absolute word boundaries."""
+    start = _ass_centiseconds(cue.start_seconds)
+    end = _ass_centiseconds(cue.end_seconds)
+    if end <= start:
+        raise CaptionPlanningError(f"caption cue {cue.sequence} is shorter than ASS precision")
+    intervals = [
+        (
+            max(start, _ass_centiseconds(word.start_seconds)),
+            min(end, _ass_centiseconds(word.end_seconds)),
+        )
+        for word in words
+    ]
+    boundaries = sorted({start, end, *(edge for interval in intervals for edge in interval)})
+    states: list[tuple[int, int, int | None]] = []
+    for left, right in zip(boundaries, boundaries[1:], strict=False):
+        active = next(
+            (
+                index
+                for index in reversed(range(len(words)))
+                if intervals[index][0] <= left < intervals[index][1]
+            ),
+            None,
+        )
+        if states and states[-1][2] == active:
+            states[-1] = (states[-1][0], right, active)
+        else:
+            states.append((left, right, active))
+    return [
+        (left, right, _cue_text(cue, line_width, active, active_color))
+        for left, right, active in states
+    ]
+
+
 def build_ass(
-    plan: CaptionPlan, style: CaptionStyleConfig, width: int, height: int, line_width: int
+    plan: CaptionPlan,
+    style: CaptionStyleConfig,
+    width: int,
+    height: int,
+    line_width: int,
+    *,
+    alignment: WordAlignment | None = None,
+    emphasis: CaptionEmphasisConfig | None = None,
 ) -> str:
-    """Render a stable, UTF-8 ASS document with explicit two-line wrapping."""
+    """Render stable-layout static or word-emphasized UTF-8 ASS cues."""
     font = style.font_family.replace(",", " ").replace("\n", " ")
+    inactive_color = _ass_color(emphasis.inactive_color if emphasis else "#FFFFFF", alpha=True)
+    dynamic = emphasis is not None and emphasis.enabled and emphasis.mode == "word"
+    if dynamic and alignment is None:
+        raise CaptionPlanningError("word emphasis requires persisted word-alignment.json")
+    ranges = _cue_word_ranges(plan, alignment) if dynamic and alignment is not None else []
     header = (
         "[Script Info]\nScriptType: v4.00+\nWrapStyle: 2\n"
         f"PlayResX: {width}\nPlayResY: {height}\n\n"
@@ -127,7 +239,7 @@ def build_ass(
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, "
         "BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, "
         "BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
-        f"Style: Caption,{font},{style.font_size},&H00FFFFFF,&H00FFFFFF,&H00000000,"
+        f"Style: Caption,{font},{style.font_size},{inactive_color},{inactive_color},&H00000000,"
         f"&H80000000,{-1 if style.bold else 0},0,0,0,100,100,0,0,1,"
         f"{style.outline_width},{2 if style.shadow else 0},2,80,80,"
         f"{style.margin_vertical},1\n\n"
@@ -135,16 +247,23 @@ def build_ass(
         "Effect, Text\n"
     )
     lines = []
-    for cue in plan.cues:
-        wrapped = _wrap(cue.text, line_width) if style.max_lines == 2 else cue.text
-        if style.max_lines == 1 and len(wrapped) > line_width:
+    for cue_index, cue in enumerate(plan.cues):
+        if style.max_lines == 1 and len(cue.text) > line_width:
             raise CaptionPlanningError(f"caption cue {cue.sequence} exceeds one line")
-        wrapped = "\\N".join(
-            part.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}")
-            for part in wrapped.split("\\N")
-        )
-        lines.append(
-            f"Dialogue: 0,{_ass_time(cue.start_seconds)},{_ass_time(cue.end_seconds)},"
-            f"Caption,,0,0,0,,{wrapped}"
-        )
+        if dynamic and alignment is not None and emphasis is not None:
+            start, end = ranges[cue_index]
+            events = _dynamic_events(
+                cue, alignment.words[start:end], line_width, _ass_color(emphasis.active_color)
+            )
+        else:
+            wrapped = _wrap(cue.text, line_width) if style.max_lines == 2 else cue.text
+            escaped = "\\N".join(_escape_ass_text(part) for part in wrapped.split("\\N"))
+            events = [
+                (_ass_centiseconds(cue.start_seconds), _ass_centiseconds(cue.end_seconds), escaped)
+            ]
+        for start_cs, end_cs, rendered_text in events:
+            lines.append(
+                f"Dialogue: 0,{_ass_time(start_cs)},{_ass_time(end_cs)},"
+                f"Caption,,0,0,0,,{rendered_text}"
+            )
     return header + "\n".join(lines) + "\n"

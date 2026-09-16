@@ -1,10 +1,10 @@
 """Provider-neutral rendering boundary."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
-from youtube_factory.application.config import RenderConfig
+from youtube_factory.application.config import AudioConfig, RenderConfig
 from youtube_factory.domain.models import (
     Narration,
     RenderArtifact,
@@ -22,6 +22,7 @@ class RenderInputs:
     timed_scene_plan: TimedScenePlan
     visual_assets: VisualAssetManifest
     caption_ass_path: str | None = None
+    audio: AudioConfig = field(default_factory=AudioConfig)
 
 
 class Renderer(Protocol):

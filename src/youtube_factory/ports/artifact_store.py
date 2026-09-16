@@ -66,5 +66,8 @@ class ProjectArtifactStore(Protocol):
     def load_caption_plan(self, project_id: str) -> CaptionPlan | None:
         """Return an existing semantic caption plan, if present."""
 
+    def load_word_alignment(self, project_id: str) -> WordAlignment:
+        """Read persisted canonical word timing for dynamic caption styling."""
+
     def save_caption_ass(self, project_id: str, ass_text: str) -> None:
         """Regenerate styled ASS from an existing plan without realignment."""

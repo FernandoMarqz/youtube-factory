@@ -7,12 +7,17 @@ from youtube_factory.application.config.environment import (
 )
 from youtube_factory.application.config.loader import load_channel_config
 from youtube_factory.application.config.models import (
+    AudioConfig,
     CaptionAlignmentConfig,
     CaptionConfig,
+    CaptionEmphasisConfig,
     CaptionGroupingConfig,
     CaptionStyleConfig,
     ChannelConfig,
     ContentConfig,
+    DuckingConfig,
+    MusicConfig,
+    NarrationAudioConfig,
     NarrationConfig,
     PublishingConfig,
     RenderConfig,
@@ -23,12 +28,17 @@ from youtube_factory.application.config.models import (
 )
 
 __all__ = [
+    "AudioConfig",
     "ChannelConfig",
     "CaptionAlignmentConfig",
     "CaptionConfig",
+    "CaptionEmphasisConfig",
     "CaptionGroupingConfig",
     "CaptionStyleConfig",
     "ContentConfig",
+    "DuckingConfig",
+    "MusicConfig",
+    "NarrationAudioConfig",
     "NarrationConfig",
     "PublishingConfig",
     "RenderConfig",

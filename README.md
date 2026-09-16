@@ -4,7 +4,7 @@ AI-assisted platform for generating, rendering, reviewing, publishing, and analy
 
 ## Current stage
 
-Phase 6: caption alignment and burned-in ASS captions over Phase 5 video. Rendering requires `ffmpeg` and
+Phase 7: deterministic narration loudness and optional music ducking over captioned video. Rendering requires `ffmpeg` and
 `ffprobe` on PATH; the project does not download or bundle them.
 
 The immediate target is a local vertical slice:
@@ -128,14 +128,14 @@ python -m youtube_factory render-project `
 Use `--output-dir <path>` on either command if the project is outside `data/projects`.
 The renderer uses one persisted PNG per timed scene. It scales each image proportionally to cover
 1080x1920 and crops the overflow symmetrically. Hard cuts join the static scenes; the persisted
-WAV becomes the AAC audio track. The target is 30 fps H.264/yuv420p in MP4. No animation,
-transitions or music are rendered. The final file is `render/short.mp4` and its
+WAV becomes the AAC audio track. The target is 30 fps H.264/yuv420p in MP4. No animation or
+transitions are rendered. The final file is `render/short.mp4` and its
 ffprobe-measured metadata is in `render.json`. `manifest.json` lists both and identifies the
 renderer. Duration may differ from the WAV by at most two video frames (frame and AAC rounding).
 
-## Phase 6: narration-aligned captions
+## Phase 6/6B: narration-aligned captions and word emphasis
 
-`captions.enabled` in channel YAML enables burned-in static caption chunks. The local alignment
+`captions.enabled` in channel YAML enables burned-in caption chunks. The local alignment
 provider is deterministic and **synthetic**; it is for offline assembly only. For real speech,
 select `--caption-alignment openai`. The configured `whisper-1` model supplies acoustic word
 timestamps via `audio.transcriptions.create(response_format="verbose_json",
@@ -149,11 +149,23 @@ acoustic time; wholly degenerate or non-monotonic timestamp sequences still fail
 `word-alignment.json`, `captions.json` and `captions/captions.ass` remain inspectable. A deterministic
 planner groups up to five words into cues, respects punctuation and duration limits, and wraps to
 at most two lines. It checks the actual line break while grouping, not just total characters.
-ASS burns bold white text with a dark outline, small shadow and bottom-center
+ASS burns bold text with a dark outline, small shadow and bottom-center
 alignment 450 pixels above the bottom of a 1080x1920 frame. The fixed project-relative ASS filter
 path is resolved from the project directory, avoiding Windows drive-letter escaping. Changing
-channel caption style and running `render-project` regenerates ASS from `captions.json` without
-another alignment or upstream AI call. Projects without a caption plan still render uncaptioned.
+channel caption style and running `render-project` regenerates ASS from `captions.json` and
+`word-alignment.json` without another alignment or upstream AI call. Projects without a caption
+plan still render uncaptioned.
+
+Phase 6B adds optional per-word color emphasis. New cue plans persist contiguous
+`word_start_index`/`word_end_index` ranges. Older plans without indexes are matched sequentially
+against exact canonical tokens and rejected if they disagree. The channel's
+`captions.emphasis` section controls `enabled`, `mode: word|none`, and `#RRGGBB` active/inactive
+colors (default yellow `#FFD54A` over white `#FFFFFF`). Setting `enabled: false` or `mode: none`
+retains static Phase 6 captions. Full-caption, non-overlapping ASS events keep one fixed wrap,
+font and position while only the active word changes color. Speech gaps show all words in the
+inactive color. Each event boundary is rounded independently to ASS centiseconds from the
+persisted word timestamps; no durations are accumulated. The video frame rate limits visible
+timing precision. Style changes require only `render-project`; neither semantic JSON is rewritten.
 
 Offline full pipeline (the local WAV is deliberately silent):
 
@@ -182,6 +194,75 @@ The full paid pipeline can use all five OpenAI creative providers plus
 `--caption-alignment openai`; it is never run automatically. FFmpeg must include libass, and the
 selected font family must be resolvable on the host. On Windows, Arial is normally installed;
 no font file is bundled.
+
+## Phase 7: deterministic audio polish
+
+The channel `audio` section normalizes the persisted narration toward -16 LUFS with a -1.5 dBTP
+ceiling. FFmpeg performs a first-pass `loudnorm` measurement and applies the measured values in
+the render pass. The final AAC is measured again; non-silent normalized narration must land within
+2 LU of target, and measured true peak must stay within 0.25 dB of the configured ceiling. The
+local fixture WAV is silent, so normalization and the LUFS target are skipped for that source;
+silence is recorded explicitly in `audio-mix.json`. Output audio is centered stereo at 48 kHz.
+
+Music is **disabled by default**. To enable it, place a track you have rights to use at a path
+inside the specific project directory, such as
+`data/projects/<project-id>/assets/music/background.mp3`, then set its project-relative path:
+
+```yaml
+audio:
+  narration:
+    normalize: true
+    target_lufs: -16.0
+    true_peak_db: -1.5
+  music:
+    enabled: true
+    file_path: assets/music/background.mp3
+    gain_db: -22.0
+    loop: true
+    fade_in_seconds: 0.6
+    fade_out_seconds: 1.2
+  ducking:
+    enabled: true
+    threshold: 0.03
+    ratio: 8.0
+    attack_ms: 80
+    release_ms: 350
+```
+
+The path is resolved inside the project, never against the shell's current directory. The file
+must contain a readable audio stream; it is not copied or modified. Music is resampled to stereo,
+trimmed to narration length, optionally looped, faded and lowered by its baseline gain. The
+normalized narration controls `sidechaincompress`, so music recovers during pauses. A conservative
+limiter follows mixing; `amix` does not apply its implicit input normalization. Music shorter than
+the Short ends naturally when `loop: false`, with fade-out at that track's end. No music is bundled,
+downloaded or selected automatically. Check your license and YouTube usage rights before publishing.
+
+Change channel audio settings and rerender persisted media without TTS, images, captions or other
+OpenAI calls:
+
+```powershell
+python -m youtube_factory render-project `
+  --project-id <project-id> --channel engineering-es `
+  --renderer ffmpeg --output-dir output
+```
+
+`audio-mix.json` records measured input/final loudness, true peak and applied settings;
+`manifest.json` records the audio mixer identity. Source WAV, music, caption and visual artifacts
+are unchanged. Listen on headphones, laptop and phone speakers for clarity, pumping, clipping,
+pauses and the first/last second; measurements do not replace listening review.
+
+```powershell
+python -m youtube_factory create-content `
+  --channel engineering-es `
+  --topic "¿Por qué los puentes tienen juntas de dilatación?" `
+  --research-provider openai --script-generator openai --scene-planner openai `
+  --narration-provider openai --visual-provider openai `
+  --caption-alignment openai --renderer ffmpeg
+```
+
+This full paid command is documentation only; per-word styling itself makes no AI call. Review
+several cues, a two-line cue, punctuation, a fast phrase, a pause, and first/last captions before
+any eventual publication.
 
 ## Phase 4: visual prompts and assets
 

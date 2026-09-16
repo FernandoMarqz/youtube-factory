@@ -37,6 +37,8 @@ class CaptionProjectUseCase:
             self._channel.render.width,
             self._channel.render.height,
             self._channel.captions.grouping.max_characters_per_line,
+            alignment=alignment,
+            emphasis=self._channel.captions.emphasis,
         )
         self._store.save_captions(
             project_id, alignment, plan, ass, self._alignment.identifier, self._planner.identifier

@@ -120,6 +120,12 @@ class RendererMetadata(DomainModel):
     identifier: NonEmptyText
 
 
+class AudioMixerMetadata(DomainModel):
+    provider: NonEmptyText
+    identifier: NonEmptyText
+    music_enabled: bool
+
+
 class CaptionAlignmentMetadata(DomainModel):
     provider: NonEmptyText
     model: NonEmptyText | None = None
@@ -168,11 +174,21 @@ class CaptionCue(DomainModel):
     text: NonEmptyText
     start_seconds: Annotated[float, Field(ge=0)]
     end_seconds: PositiveSeconds
+    word_start_index: Annotated[int, Field(ge=0)] | None = None
+    word_end_index: Annotated[int, Field(gt=0)] | None = None
 
     @model_validator(mode="after")
     def valid_interval(self) -> CaptionCue:
         if self.end_seconds <= self.start_seconds:
             raise ValueError("caption cue end must exceed start")
+        if (self.word_start_index is None) != (self.word_end_index is None):
+            raise ValueError("caption cue word indexes must both be present or absent")
+        if (
+            self.word_start_index is not None
+            and self.word_end_index is not None
+            and self.word_end_index <= self.word_start_index
+        ):
+            raise ValueError("caption cue word end index must exceed start index")
         return self
 
 
@@ -188,7 +204,37 @@ class CaptionPlan(DomainModel):
         for previous, current in zip(self.cues, self.cues[1:], strict=False):
             if current.start_seconds < previous.end_seconds - 0.001:
                 raise ValueError("caption cues must not overlap")
+        indexed = [cue.word_start_index is not None for cue in self.cues]
+        if any(indexed) and not all(indexed):
+            raise ValueError("caption cue word indexes must be present for every cue")
+        if all(indexed):
+            expected_start = 0
+            for cue in self.cues:
+                if cue.word_start_index != expected_start or cue.word_end_index is None:
+                    raise ValueError("caption cue word indexes must be contiguous")
+                expected_start = cue.word_end_index
         return self
+
+
+class AudioMixReport(DomainModel):
+    """Measured final audio and the deterministic mix settings used to produce it."""
+
+    provider: NonEmptyText
+    identifier: NonEmptyText
+    normalization_enabled: bool
+    target_lufs: float
+    true_peak_limit_db: float
+    narration_input_lufs: float | None = None
+    narration_was_silent: bool
+    music_enabled: bool
+    music_file_path: str | None = None
+    music_gain_db: float | None = None
+    music_loop: bool | None = None
+    ducking_enabled: bool
+    final_integrated_lufs: float | None = None
+    final_true_peak_db: float | None = None
+    sample_rate_hz: Annotated[int, Field(gt=0)]
+    channels: Annotated[int, Field(gt=0)]
 
 
 class RenderArtifact(DomainModel):
@@ -205,6 +251,9 @@ class RenderArtifact(DomainModel):
     audio_codec: NonEmptyText
     pixel_format: NonEmptyText
     file_size_bytes: Annotated[int, Field(gt=0)]
+    audio_sample_rate_hz: Annotated[int, Field(gt=0)] | None = None
+    audio_channels: Annotated[int, Field(gt=0)] | None = None
+    audio_mix: AudioMixReport | None = Field(default=None, exclude=True)
 
     @model_validator(mode="after")
     def has_project_relative_path(self) -> RenderArtifact:
@@ -238,6 +287,7 @@ class ContentManifest(DomainModel):
     timing_reconciliation_strategy: NonEmptyText | None = None
     visual_asset_generator: VisualAssetGeneratorMetadata | None = None
     renderer: RendererMetadata | None = None
+    audio_mixer: AudioMixerMetadata | None = None
     caption_alignment: CaptionAlignmentMetadata | None = None
     caption_planner: CaptionPlannerMetadata | None = None
 

@@ -173,7 +173,22 @@ caption chunks, `captions.json`, ASS styling and FFmpeg/libass burn-in are imple
 `caption-project` aligns saved narration only; `render-project` restyles and rerenders saved media.
 Human review remains required before any future publication.
 
-Next: Phase 6B, optional per-word highlighting/emphasis driven by existing word alignment.
+## Phase 6B - Dynamic Word Emphasis
+
+Status: complete. Explicit cue word ranges and validated legacy sequential mapping reuse
+`word-alignment.json`; deterministic ASS events change only active-word color without text
+reflow. `render-project` regenerates ASS and MP4 offline from persisted captions and media.
+Static Phase 6 captions remain available by disabling emphasis. No new AI call is involved.
+
+## Phase 7 - Deterministic Audio Polish
+
+Status: complete. FFmpeg measures narration loudness, applies two-pass normalization, optionally
+mixes an explicitly supplied local music file with looping, gain and fades, and ducks music from
+the narration sidechain. A final limiter and encoded-file LUFS/true-peak validation protect speech
+clarity. `audio-mix.json` and manifest metadata are persisted; `render-project` applies changes
+without upstream calls. Music is disabled by default and licensing remains the user's decision.
+
+Next: Phase 8, subtle deterministic scene motion and hard-cut polish without changing scene timing.
 
 ---
 
@@ -206,7 +221,7 @@ FAILED
 
 ---
 
-## Phase 7 — Internal API And n8n
+## Later Phase - Internal API And n8n
 
 ### Goal
 
@@ -226,7 +241,7 @@ n8n must orchestrate only. Business logic stays in Python.
 
 ---
 
-## Phase 8 — YouTube Publishing
+## Later Phase - YouTube Publishing
 
 ### Goal
 

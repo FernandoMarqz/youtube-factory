@@ -186,6 +186,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 renderer,
                 channel.render,
                 caption_settings,
+                channel.audio,
             )
             render_use_case.execute(str(result.project_id))
         except ContentPipelineError as error:
@@ -199,7 +200,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             store = FileSystemArtifactStore(output_root)
             renderer = build_renderer(channel, args.renderer)
             render_use_case = RenderProjectUseCase(
-                store, renderer, channel.render, channel.captions
+                store, renderer, channel.render, channel.captions, channel.audio
             )
             artifact = render_use_case.execute(args.project_id)
         except ContentPipelineError as error:
