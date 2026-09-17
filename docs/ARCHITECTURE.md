@@ -158,3 +158,14 @@ starts at the first's terminal geometry. The FFmpeg adapter reuses its image pre
 `zoompan` expressions, splitting one PNG input into two filter branches only when necessary.
 Beat concat happens before the unchanged global scene concat; captions and audio stay downstream.
 `visual-pacing.json` and minimal manifest metadata are render-derived, not new editorial timing.
+
+Phase 9 is optional: `GenerativeVideoEligibilityPolicy` consumes the saved semantic scene plan,
+timed scene plan, visual asset manifest and Phase 8B pacing, producing a free
+`GenerativeVideoPlan`. The provider-neutral `VideoAssetProvider` has a local fixture adapter
+and an optional paid Runway adapter. An explicit generation use case creates a derived 9:16
+reference image, submits at most one task, validates the downloaded MP4 through a media
+inspector port and persists a `GeneratedVideoManifest`. `render-project` never calls this port.
+It derives a hybrid visual composition only from persisted valid clips; otherwise Phase 8B
+renders as before. FFmpeg normalizes and trims a clip to beat 2's exact frame count, maps no
+provider audio, then uses the existing scene concat, ASS and audio graph. No semantic scene,
+caption, narration or music timeline changes.

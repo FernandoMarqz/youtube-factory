@@ -219,8 +219,16 @@ frame-exact camera beats from one persisted PNG. Diagrams remain conservative. B
 inside a scene, preserving its authoritative boundaries and the downstream captions/audio. The
 derived `visual-pacing.json` is rebuilt by offline `render-project`; no new media or API calls.
 
-Next: Phase 8C, assess selective transition polish after perceptual review; otherwise evaluate
-generative video only for high-value animation-intent scenes.
+## Phase 9 - Selective Generative Video
+
+Status: implemented, awaiting a deliberate paid quality review. The optional provider-neutral
+layer plans for free, ranks long animation-intent scenes and permits at most one five-second
+Runway Gen-4.5 image-to-video clip per project. A valid persisted clip replaces only Phase 8B
+beat 2; `render-project` remains offline and falls back to the still-image beat if necessary.
+No paid Runway call is part of tests or routine rendering.
+
+Next: Phase 9B, manually generate and review one clip, measure quality/cost, and tune policy
+before increasing the budget. Phase 8C transition polish remains optional.
 
 ---
 
@@ -290,7 +298,7 @@ Publish approved content through YouTube APIs.
 
 ---
 
-## Phase 9 — Analytics
+## Later Phase - Analytics
 
 ### Goal
 

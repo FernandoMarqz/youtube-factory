@@ -73,6 +73,18 @@ visual_pacing:
   split_ratios: [0.45, 0.50, 0.55]
   preserve_continuity: true
 
+# Explicit paid opt-in only. Dry-run remains available while disabled.
+generative_video:
+  enabled: true
+  provider: runway
+  model: gen4.5
+  budget:
+    max_generated_scenes: 1
+    max_generated_seconds: 5
+  minimum_scene_duration_seconds: 6.5
+  dynamic_motion_keywords: [transformacion, transforma, movimiento, presion, grieta, propaga, fluye, gira, expande, contrae, maquina, motor, turbina]
+  timeout_seconds: 900
+
 audio:
   narration:
     normalize: true

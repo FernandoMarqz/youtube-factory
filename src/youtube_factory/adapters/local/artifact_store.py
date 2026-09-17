@@ -23,6 +23,10 @@ from youtube_factory.domain.models import (
     CaptionPlan,
     CaptionPlannerMetadata,
     ContentManifest,
+    GeneratedVideoAsset,
+    GeneratedVideoManifest,
+    GenerativeVideoMetadata,
+    GenerativeVideoPlan,
     MusicSelectorMetadata,
     Narration,
     RenderArtifact,
@@ -377,3 +381,102 @@ class FileSystemArtifactStore:
         except ValueError as error:
             raise RenderValidationError("project id must be a UUID") from error
         return self._root_directory / project_id
+
+    def load_scene_plan(self, project_id: str) -> ScenePlan:
+        try:
+            return ScenePlan.model_validate_json(
+                (self._project_directory(project_id) / "scenes.json").read_text("utf-8")
+            )
+        except (OSError, ValueError) as error:
+            raise RenderValidationError("scenes.json is missing or invalid") from error
+
+    def save_generative_video_plan(self, project_id: str, plan: GenerativeVideoPlan) -> None:
+        directory = self._project_directory(project_id)
+        manifest = ContentManifest.model_validate_json(
+            (directory / "manifest.json").read_text("utf-8")
+        )
+        if plan.topic_id != manifest.topic_id:
+            raise RenderValidationError("generative video plan belongs to another topic")
+        self._write_model(directory / "generative-video-plan.json", plan)
+        updated = manifest.model_copy(
+            update={
+                "artifacts": tuple(
+                    dict.fromkeys((*manifest.artifacts, "generative-video-plan.json"))
+                )
+            }
+        )
+        self._write_model(directory / "manifest.json", updated)
+
+    def save_video_reference(self, project_id: str, scene_sequence: int, image: bytes) -> Path:
+        directory = self._project_directory(project_id)
+        path = directory / "video-references" / f"scene-{scene_sequence:02d}.jpg"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(image)
+        return path
+
+    def save_generated_video_bytes(
+        self, project_id: str, scene_sequence: int, video: bytes
+    ) -> Path:
+        directory = self._project_directory(project_id)
+        path = directory / "generated-video" / f".scene-{scene_sequence:02d}-candidate.mp4"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(video)
+        return path
+
+    def save_generated_video_asset(self, project_id: str, asset: GeneratedVideoAsset) -> None:
+        directory = self._project_directory(project_id)
+        manifest_path = directory / "manifest.json"
+        manifest = ContentManifest.model_validate_json(manifest_path.read_text("utf-8"))
+        candidate = (
+            directory / "generated-video" / f".scene-{asset.scene_sequence:02d}-candidate.mp4"
+        )
+        if not candidate.is_file():
+            raise ArtifactPersistenceError("validated generated-video candidate is missing")
+        candidate.replace(self._resolve_project_path(directory, asset.file_path))
+        previous = self.load_generated_videos(project_id)
+        assets = (
+            [
+                existing
+                for existing in previous.assets
+                if existing.scene_sequence != asset.scene_sequence
+            ]
+            if previous
+            else []
+        )
+        assets.append(asset)
+        generated = GeneratedVideoManifest(
+            topic_id=manifest.topic_id,
+            provider=asset.provider,
+            model=asset.model,
+            assets=sorted(assets, key=lambda item: item.scene_sequence),
+        )
+        self._write_model(directory / "generated-video-assets.json", generated)
+        updated = manifest.model_copy(
+            update={
+                "artifacts": tuple(
+                    dict.fromkeys(
+                        (
+                            *manifest.artifacts,
+                            asset.reference_image,
+                            asset.file_path,
+                            "generated-video-assets.json",
+                        )
+                    )
+                ),
+                "generative_video": GenerativeVideoMetadata(
+                    identifier="selective-generative-video-v1",
+                    provider=asset.provider,
+                    generated_asset_count=len(generated.assets),
+                ),
+            }
+        )
+        self._write_model(manifest_path, updated)
+
+    def load_generated_videos(self, project_id: str) -> GeneratedVideoManifest | None:
+        path = self._project_directory(project_id) / "generated-video-assets.json"
+        if not path.is_file():
+            return None
+        try:
+            return GeneratedVideoManifest.model_validate_json(path.read_text("utf-8"))
+        except (OSError, ValueError) as error:
+            raise RenderValidationError("generated-video-assets.json is invalid") from error

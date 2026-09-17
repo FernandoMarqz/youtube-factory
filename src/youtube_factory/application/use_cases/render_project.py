@@ -13,6 +13,7 @@ from youtube_factory.application.config import (
 )
 from youtube_factory.application.exceptions import (
     CaptionArtifactError,
+    GenerativeVideoError,
     MusicSelectionError,
     RenderValidationError,
 )
@@ -24,8 +25,13 @@ from youtube_factory.application.services.music import (
 )
 from youtube_factory.application.services.visual_motion import DeterministicVisualMotionPlanner
 from youtube_factory.application.services.visual_pacing import DeterministicVisualPacingPlanner
-from youtube_factory.domain.models import RenderArtifact
+from youtube_factory.domain.models import (
+    HybridVisualCompositionPlan,
+    HybridVisualSegment,
+    RenderArtifact,
+)
 from youtube_factory.ports import ProjectArtifactStore, Renderer
+from youtube_factory.ports.video_assets import VideoMediaInspector
 
 
 class RenderProjectUseCase:
@@ -42,6 +48,7 @@ class RenderProjectUseCase:
         music_selector: MusicSelector | None = None,
         visual_motion: VisualMotionConfig | None = None,
         visual_pacing: VisualPacingConfig | None = None,
+        video_inspector: VideoMediaInspector | None = None,
     ) -> None:
         self._artifact_store = artifact_store
         self._renderer = renderer
@@ -52,6 +59,7 @@ class RenderProjectUseCase:
         self._music_selector = music_selector or DeterministicCatalogMusicSelector()
         self._visual_motion = visual_motion
         self._visual_pacing = visual_pacing
+        self._video_inspector = video_inspector
 
     def execute(self, project_id: str, *, reselect_music: bool = False) -> RenderArtifact:
         """Render only; no research, script, TTS, or image provider is contacted."""
@@ -125,6 +133,52 @@ class RenderProjectUseCase:
                 self._visual_motion,
             )
             inputs = replace(inputs, visual_pacing=pacing_plan)
+        if inputs.visual_pacing is not None and self._video_inspector is not None:
+            generated = self._artifact_store.load_generated_videos(project_id)
+            if generated is not None and generated.topic_id == inputs.timed_scene_plan.topic_id:
+                segments: list[HybridVisualSegment] = []
+                for asset in generated.assets:
+                    paced = next(
+                        (
+                            scene
+                            for scene in inputs.visual_pacing.scenes
+                            if scene.scene_sequence == asset.scene_sequence
+                        ),
+                        None,
+                    )
+                    if paced is None or len(paced.beats) != 2:
+                        continue
+                    clip = (inputs.project_directory / asset.file_path).resolve()
+                    if not clip.is_relative_to(inputs.project_directory.resolve()):
+                        continue
+                    try:
+                        media = self._video_inspector.inspect(clip)
+                    except GenerativeVideoError:
+                        continue  # Phase 8B is always the offline fallback.
+                    beat = paced.beats[1]
+                    if (
+                        media.duration_seconds + 1 / self._config.fps
+                        < beat.frame_count / self._config.fps
+                    ):
+                        continue
+                    segments.append(
+                        HybridVisualSegment(
+                            scene_sequence=asset.scene_sequence,
+                            beat_sequence=2,
+                            start_frame=beat.start_frame,
+                            end_frame=beat.end_frame,
+                            generated_file_path=asset.file_path,
+                        )
+                    )
+                if segments:
+                    inputs = replace(
+                        inputs,
+                        hybrid_visuals=HybridVisualCompositionPlan(
+                            topic_id=inputs.timed_scene_plan.topic_id,
+                            fps=self._config.fps,
+                            segments=segments,
+                        ),
+                    )
         artifact = self._renderer.render(inputs, self._config)
         if inputs.visual_motion is not None:
             self._artifact_store.save_visual_motion(project_id, inputs.visual_motion)

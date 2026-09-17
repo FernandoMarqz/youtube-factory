@@ -1,11 +1,13 @@
 """Bootstrap command-line interface."""
 
 import argparse
+import os
 from collections.abc import Sequence
 from pathlib import Path
 
 from youtube_factory import __version__
 from youtube_factory.adapters.ffmpeg import FFmpegRenderer
+from youtube_factory.adapters.ffmpeg.video_probe import FFprobeVideoInspector
 from youtube_factory.adapters.local import (
     FileSystemArtifactStore,
     LocalCaptionAlignmentProvider,
@@ -15,6 +17,7 @@ from youtube_factory.adapters.local import (
     LocalScenePlanner,
     LocalScriptGenerator,
 )
+from youtube_factory.adapters.local.fixture_video import LocalFixtureVideoAssetProvider
 from youtube_factory.adapters.openai import (
     OpenAICaptionAlignmentConfig,
     OpenAICaptionAlignmentProvider,
@@ -29,6 +32,7 @@ from youtube_factory.adapters.openai import (
     OpenAIVisualAssetProvider,
     OpenAIVisualConfig,
 )
+from youtube_factory.adapters.runway import RunwayVideoAssetProvider
 from youtube_factory.application.config import (
     ChannelConfig,
     get_openai_api_key,
@@ -36,7 +40,10 @@ from youtube_factory.application.config import (
     load_channel_config,
     load_local_environment,
 )
-from youtube_factory.application.exceptions import ContentPipelineError
+from youtube_factory.application.exceptions import (
+    ContentPipelineError,
+    GenerativeVideoConfigurationError,
+)
 from youtube_factory.application.services import (
     DeterministicVisualPromptBuilder,
     SceneTimingReconciler,
@@ -44,6 +51,7 @@ from youtube_factory.application.services import (
 from youtube_factory.application.use_cases import (
     CaptionProjectUseCase,
     CreateContentUseCase,
+    GenerateVideoAssetsUseCase,
     RenderProjectUseCase,
 )
 from youtube_factory.ports import (
@@ -115,6 +123,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional word-alignment provider override.",
     )
     create_content.add_argument(
+        "--video-provider",
+        choices=("runway", "local-fixture"),
+        default=None,
+        help="Explicit paid video enhancement; requires generative_video.enabled.",
+    )
+    create_content.add_argument(
         "--output-dir",
         type=Path,
         default=None,
@@ -137,6 +151,15 @@ def build_parser() -> argparse.ArgumentParser:
     caption_project.add_argument("--channel", default="engineering-es")
     caption_project.add_argument("--caption-alignment", choices=("local", "openai"), default=None)
     caption_project.add_argument("--output-dir", type=Path, default=None)
+    video_assets = subcommands.add_parser(
+        "generate-video-assets", help="Plan or explicitly generate selective image-to-video clips."
+    )
+    video_assets.add_argument("--project-id", required=True)
+    video_assets.add_argument("--channel", default="engineering-es")
+    video_assets.add_argument("--provider", choices=("runway", "local-fixture"), required=True)
+    video_assets.add_argument("--dry-run", action="store_true")
+    video_assets.add_argument("--regenerate", action="store_true")
+    video_assets.add_argument("--output-dir", type=Path, default=None)
     return parser
 
 
@@ -149,6 +172,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         load_local_environment()
         try:
             channel = load_channel_config(args.channel)
+            if args.video_provider is not None and not channel.generative_video.enabled:
+                raise GenerativeVideoConfigurationError(
+                    "generative_video.enabled must be true for explicit video generation"
+                )
             research_provider = build_research_provider(channel, args.research_provider)
             script_generator = build_script_generator(channel, args.script_generator)
             scene_planner = build_scene_planner(channel, args.scene_planner)
@@ -184,6 +211,19 @@ def main(argv: Sequence[str] | None = None) -> None:
             result = use_case.execute(args.topic)
             if aligner is not None:
                 CaptionProjectUseCase(store, aligner, channel).execute(str(result.project_id))
+            if args.video_provider is not None:
+                video_config = channel.generative_video.model_copy(
+                    update={"provider": args.video_provider}
+                )
+                GenerateVideoAssetsUseCase(
+                    store,
+                    video_config,
+                    channel.visual_motion,
+                    channel.visual_pacing,
+                    channel.render.fps,
+                    FFprobeVideoInspector(),
+                    build_video_asset_provider(args.video_provider),
+                ).execute(str(result.project_id), dry_run=False)
             render_use_case = RenderProjectUseCase(
                 store,
                 renderer,
@@ -192,6 +232,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 channel.audio,
                 visual_motion=channel.visual_motion,
                 visual_pacing=channel.visual_pacing,
+                video_inspector=FFprobeVideoInspector(),
             )
             render_use_case.execute(str(result.project_id))
         except ContentPipelineError as error:
@@ -212,6 +253,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 channel.audio,
                 visual_motion=channel.visual_motion,
                 visual_pacing=channel.visual_pacing,
+                video_inspector=FFprobeVideoInspector(),
             )
             artifact = render_use_case.execute(args.project_id, reselect_music=args.reselect_music)
         except ContentPipelineError as error:
@@ -228,6 +270,62 @@ def main(argv: Sequence[str] | None = None) -> None:
         except ContentPipelineError as error:
             raise SystemExit(f"error: {error}") from error
         print(output_root / args.project_id / "captions.json")
+    elif args.command == "generate-video-assets":
+        load_local_environment()
+        try:
+            channel = load_channel_config(args.channel)
+            output_root = args.output_dir or get_output_directory(Path("data/projects"))
+            store = FileSystemArtifactStore(output_root)
+            config = channel.generative_video.model_copy(update={"provider": args.provider})
+            inspector = FFprobeVideoInspector()
+            planner = GenerateVideoAssetsUseCase(
+                store,
+                config,
+                channel.visual_motion,
+                channel.visual_pacing,
+                channel.render.fps,
+                inspector,
+            )
+            plan = planner.execute(args.project_id, dry_run=True)
+            selected = [item for item in plan.scenes if item.selected]
+            print(
+                f"Selected scenes: {len(selected)}; requested seconds: "
+                f"{sum(item.target_duration_seconds for item in selected)}; "
+                f"provider: {args.provider}; model: {config.model}"
+            )
+            for item in selected:
+                reasons = ",".join(item.reasons)
+                print(f"scene {item.scene_sequence}: score={item.score}, reasons={reasons}")
+            if not args.dry_run:
+                if not config.enabled:
+                    raise GenerativeVideoConfigurationError(
+                        "generative_video.enabled must be true before a paid generation"
+                    )
+                provider = build_video_asset_provider(args.provider)
+                GenerateVideoAssetsUseCase(
+                    store,
+                    config,
+                    channel.visual_motion,
+                    channel.visual_pacing,
+                    channel.render.fps,
+                    inspector,
+                    provider,
+                ).execute(args.project_id, dry_run=False, regenerate=args.regenerate)
+        except ContentPipelineError as error:
+            raise SystemExit(f"error: {error}") from error
+        print(output_root / args.project_id / "generative-video-plan.json")
+
+
+def build_video_asset_provider(
+    provider: str,
+) -> RunwayVideoAssetProvider | LocalFixtureVideoAssetProvider:
+    """Construct a provider only after explicit CLI intent and config validation."""
+    if provider == "local-fixture":
+        return LocalFixtureVideoAssetProvider()
+    if provider == "runway":
+        secret = os.environ.get("RUNWAYML_API_SECRET", "").strip()
+        return RunwayVideoAssetProvider(secret)
+    raise GenerativeVideoConfigurationError(f"unsupported video provider: {provider}")
 
 
 def build_caption_alignment_provider(

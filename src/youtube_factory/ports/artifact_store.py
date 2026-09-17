@@ -6,6 +6,9 @@ from typing import Protocol
 from youtube_factory.domain.models import (
     CaptionPlan,
     ContentManifest,
+    GeneratedVideoAsset,
+    GeneratedVideoManifest,
+    GenerativeVideoPlan,
     Narration,
     RenderArtifact,
     ResearchResult,
@@ -91,3 +94,23 @@ class ProjectArtifactStore(Protocol):
         self, project_id: str, selection: SelectedMusicTrack, source: Path
     ) -> None:
         """Copy the chosen audio into the project and persist auditable metadata."""
+
+    def load_scene_plan(self, project_id: str) -> ScenePlan:
+        """Load semantic intent for free video planning."""
+
+    def save_generative_video_plan(self, project_id: str, plan: GenerativeVideoPlan) -> None:
+        """Persist the no-cost selection plan."""
+
+    def save_video_reference(self, project_id: str, scene_sequence: int, image: bytes) -> Path:
+        """Persist a derived, provider-ready vertical reference frame."""
+
+    def save_generated_video_bytes(
+        self, project_id: str, scene_sequence: int, video: bytes
+    ) -> Path:
+        """Persist the paid or fixture clip before independent media validation."""
+
+    def save_generated_video_asset(self, project_id: str, asset: GeneratedVideoAsset) -> None:
+        """Register a validated clip in the project manifest."""
+
+    def load_generated_videos(self, project_id: str) -> GeneratedVideoManifest | None:
+        """Load existing paid media metadata without invoking its provider."""

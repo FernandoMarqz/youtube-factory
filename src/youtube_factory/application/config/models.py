@@ -216,6 +216,31 @@ class VisualPacingConfig(ChannelConfigModel):
         return self
 
 
+class GenerativeVideoBudgetConfig(ChannelConfigModel):
+    max_generated_scenes: Annotated[int, Field(ge=0, le=1)] = 1
+    max_generated_seconds: Annotated[int, Field(ge=0, le=10)] = 5
+
+
+class GenerativeVideoConfig(ChannelConfigModel):
+    """Explicitly gated, selective paid video enhancement."""
+
+    enabled: bool = False
+    provider: Literal["runway", "local-fixture"] = "runway"
+    model: Literal["gen4.5"] = "gen4.5"
+    budget: GenerativeVideoBudgetConfig = Field(default_factory=GenerativeVideoBudgetConfig)
+    minimum_scene_duration_seconds: Annotated[float, Field(gt=0, le=30, allow_inf_nan=False)] = 6.5
+    dynamic_motion_keywords: TextTuple = ()
+    timeout_seconds: Annotated[int, Field(ge=30, le=3600)] = 900
+
+    @model_validator(mode="after")
+    def valid_video_budget(self) -> "GenerativeVideoConfig":
+        if self.enabled and (
+            self.budget.max_generated_scenes == 0 or self.budget.max_generated_seconds < 2
+        ):
+            raise ValueError("enabled generative video requires a budget of at least one 2s clip")
+        return self
+
+
 class NarrationAudioConfig(ChannelConfigModel):
     normalize: bool = False
     target_lufs: Annotated[float, Field(ge=-30, le=-10, allow_inf_nan=False)] = -16.0
@@ -379,6 +404,7 @@ class ChannelConfig(ChannelConfigModel):
     render: RenderConfig
     visual_motion: VisualMotionConfig = Field(default_factory=VisualMotionConfig)
     visual_pacing: VisualPacingConfig = Field(default_factory=VisualPacingConfig)
+    generative_video: GenerativeVideoConfig = Field(default_factory=GenerativeVideoConfig)
     audio: AudioConfig = Field(default_factory=AudioConfig)
     captions: CaptionConfig = Field(default_factory=CaptionConfig)
     publishing: PublishingConfig

@@ -8,8 +8,10 @@ pytest, ruff and mypy are the current baseline. The architecture is a modular mo
 domain contracts, application use cases/services, provider ports, infrastructure adapters and a
 CLI composition root. PostgreSQL, FastAPI, n8n, publishing and analytics are deferred.
 
-Phase 8B adds frame-exact intra-scene camera beats from existing PNGs; it makes no AI or network
-calls. Phase 8 scene-level motion remains intact. Phase 7B.1 uses the existing user-curated
+Phase 9 adds optional, selectively generated image-to-video clips above the Phase 8B fallback.
+It is disabled by default and never runs during normal `render-project`. Phase 8B still adds
+frame-exact intra-scene camera beats from existing PNGs; it makes no AI or network calls.
+Phase 8 scene-level motion remains intact. Phase 7B.1 uses the existing user-curated
 `assets/music/catalog.yaml` for offline deterministic soundtrack selection. Phase 7 still owns
 narration loudness normalization, optional music ducking and encoded audio validation. Phase 6B
 per-word ASS emphasis remains intact;
@@ -211,8 +213,48 @@ The saved aviation project `eb72074f-ab9f-5dcb-9de2-fcafd3029f85` rendered offli
 scene 6 is 71 frames/one beat; scene 7 is frames 884-1148, split 132+132. Final media remains
 43.0 s, 1080x1920, 30 fps, H.264/AAC/yuv420p with persisted Top Ten music.
 
+## Phase 9 Selective Video
+
+`generative_video` is immutable channel configuration with `enabled: false`, provider `runway`,
+model `gen4.5`, at most one scene and five generated seconds. The free deterministic eligibility
+policy reads saved `scenes.json`, `timed-scenes.json`, visual assets and Phase 8B pacing. Only
+long `animation` scenes with a second beat qualify. It scores duration (+3), transformation
+(+4), physical process (+2) and a channel keyword (+3), then picks highest score/lowest scene
+sequence. The real aviation dry-run selects scene 7 (score 12, five seconds); no Runway call
+has been executed.
+
+`VideoAssetProvider` has a local FFmpeg fixture and optional Runway SDK adapter. The latter
+uses `image_to_video.create(model='gen4.5', prompt_image=<JPEG data URI>, ratio='720:1280',
+duration=5)` and bounded `wait_for_task_output`; SDK retries are disabled. The 720x1280 JPEG
+is a center-cover derivative of the saved PNG, under the documented 5 MB data URI limit.
+The source PNG is untouched. `RUNWAYML_API_SECRET` stays in ignored `.env`. Install the
+optional package with `pip install -e ".[runway]"` for a manual paid run.
+
+`generative-video-plan.json` is saved by the free dry-run. Successful explicit generation
+persists `video-references/scene-XX.jpg`, `generated-video/scene-XX.mp4` and
+`generated-video-assets.json` with actual ffprobe metadata, provider task ID, timestamps,
+prompt/source hashes and requested seconds. No unreported cost is invented. Existing clips
+are reused; `--regenerate` is required to replace one. The FFmpeg renderer substitutes a
+validated clip for only beat 2, converts to the target FPS/cover geometry/limited-range
+`yuv420p`, trims to the beat's exact frames and never maps provider audio. Missing/invalid
+clips fall back offline to the Phase 8B camera beat. Captions, narration, music and timing
+stay authoritative and unchanged. Runway output needs human factual/visual review.
+
+```powershell
+# Free, no credentials or paid call required
+python -m youtube_factory generate-video-assets --project-id eb72074f-ab9f-5dcb-9de2-fcafd3029f85 --channel engineering-es --provider runway --dry-run --output-dir output
+# Paid only after enabling generative_video in channel YAML
+python -m youtube_factory generate-video-assets --project-id eb72074f-ab9f-5dcb-9de2-fcafd3029f85 --channel engineering-es --provider runway --output-dir output
+# Offline reuse or fallback
+python -m youtube_factory render-project --project-id eb72074f-ab9f-5dcb-9de2-fcafd3029f85 --channel engineering-es --renderer ffmpeg --output-dir output
+```
+
+The offline test fixture proves a generated clip with its own audio still produces a final
+render using project narration only. Automated tests never contact Runway. Real Runway output
+has not yet been generated or reviewed; the paid command above is for deliberate manual use.
+
 ## Next Milestone
 
-Phase 8C: consider selective transitions only if playback review shows hard cuts are limiting;
-otherwise try generative video selectively for high-value animation-intent scenes.
+Phase 9B: manually generate and review one paid Runway clip against the Phase 8B fallback,
+measure quality/cost, then tune eligibility and decide whether the one-scene budget should grow.
 Human approval remains required before publication.

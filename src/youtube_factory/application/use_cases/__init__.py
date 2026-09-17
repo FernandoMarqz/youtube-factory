@@ -5,11 +5,13 @@ from youtube_factory.application.use_cases.create_content import (
     CreateContentResult,
     CreateContentUseCase,
 )
+from youtube_factory.application.use_cases.generate_video_assets import GenerateVideoAssetsUseCase
 from youtube_factory.application.use_cases.render_project import RenderProjectUseCase
 
 __all__ = [
     "CaptionProjectUseCase",
     "CreateContentResult",
     "CreateContentUseCase",
+    "GenerateVideoAssetsUseCase",
     "RenderProjectUseCase",
 ]

@@ -130,6 +130,12 @@ class VisualPacingMetadata(DomainModel):
     enabled: bool
 
 
+class GenerativeVideoMetadata(DomainModel):
+    identifier: NonEmptyText
+    provider: NonEmptyText
+    generated_asset_count: Annotated[int, Field(ge=0)]
+
+
 class AudioMixerMetadata(DomainModel):
     provider: NonEmptyText
     identifier: NonEmptyText
@@ -356,6 +362,7 @@ class ContentManifest(DomainModel):
     renderer: RendererMetadata | None = None
     visual_motion: VisualMotionMetadata | None = None
     visual_pacing: VisualPacingMetadata | None = None
+    generative_video: GenerativeVideoMetadata | None = None
     audio_mixer: AudioMixerMetadata | None = None
     music_selector: MusicSelectorMetadata | None = None
     caption_alignment: CaptionAlignmentMetadata | None = None
@@ -569,6 +576,96 @@ class VisualPacingPlan(DomainModel):
                 if not isclose(beat.duration_seconds, beat.frame_count / self.fps, abs_tol=0.001):
                     raise ValueError("visual beat duration must match frame count")
         return self
+
+
+class PlannedVideoScene(DomainModel):
+    scene_sequence: PositiveSequence
+    eligible: bool
+    selected: bool
+    score: Annotated[int, Field(ge=0)]
+    source_asset: NonEmptyText
+    target_duration_seconds: Annotated[int, Field(ge=0)] = 0
+    reasons: tuple[str, ...] = ()
+    prompt: str | None = None
+
+
+class GenerativeVideoPlan(DomainModel):
+    identifier: NonEmptyText
+    topic_id: UUID
+    provider: NonEmptyText
+    model: NonEmptyText
+    max_generated_scenes: Annotated[int, Field(ge=0)]
+    max_generated_seconds: Annotated[int, Field(ge=0)]
+    scenes: list[PlannedVideoScene]
+
+    @model_validator(mode="after")
+    def within_budget(self) -> GenerativeVideoPlan:
+        selected = [scene for scene in self.scenes if scene.selected]
+        if (
+            len(selected) > self.max_generated_scenes
+            or sum(scene.target_duration_seconds for scene in selected) > self.max_generated_seconds
+        ):
+            raise ValueError("generative video plan exceeds configured budget")
+        if any(not scene.eligible for scene in selected):
+            raise ValueError("selected generative scene must be eligible")
+        return self
+
+
+class GeneratedVideoAsset(DomainModel):
+    scene_sequence: PositiveSequence
+    provider: NonEmptyText
+    model: NonEmptyText
+    file_path: NonEmptyText
+    source_image: NonEmptyText
+    reference_image: NonEmptyText
+    duration_seconds: PositiveSeconds
+    width: PositiveSequence
+    height: PositiveSequence
+    fps: PositiveSeconds
+    video_codec: NonEmptyText
+    has_audio: bool
+    requested_seconds: PositiveSequence
+    provider_task_id: NonEmptyText
+    prompt_sha256: Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
+    source_image_sha256: Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
+    requested_at: datetime
+    completed_at: datetime
+
+    @model_validator(mode="after")
+    def relative_paths(self) -> GeneratedVideoAsset:
+        for value in (self.file_path, self.source_image, self.reference_image):
+            path = PurePosixPath(value)
+            if path.is_absolute() or ".." in path.parts or "\\" in value or ":" in value:
+                raise ValueError("generated video paths must be project-relative")
+        return self
+
+
+class GeneratedVideoManifest(DomainModel):
+    topic_id: UUID
+    provider: NonEmptyText
+    model: NonEmptyText
+    assets: list[GeneratedVideoAsset]
+
+    @model_validator(mode="after")
+    def unique_scenes(self) -> GeneratedVideoManifest:
+        sequences = [asset.scene_sequence for asset in self.assets]
+        if len(sequences) != len(set(sequences)):
+            raise ValueError("generated video scenes must be unique")
+        return self
+
+
+class HybridVisualSegment(DomainModel):
+    scene_sequence: PositiveSequence
+    beat_sequence: PositiveSequence
+    start_frame: Annotated[int, Field(ge=0)]
+    end_frame: Annotated[int, Field(gt=0)]
+    generated_file_path: NonEmptyText
+
+
+class HybridVisualCompositionPlan(DomainModel):
+    topic_id: UUID
+    fps: PositiveSequence
+    segments: list[HybridVisualSegment]
 
 
 class VisualPrompt(DomainModel):

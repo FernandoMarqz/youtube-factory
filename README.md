@@ -531,6 +531,44 @@ In PowerShell, this prompts for the key instead of placing it in shell history:
 $env:OPENAI_API_KEY = [System.Net.NetworkCredential]::new("", (Read-Host -AsSecureString "OpenAI API key")).Password
 ```
 
+## Phase 9: selective generated video
+
+Phase 8/8B remains the default. Optional Phase 9 plans at most one five-second image-to-video
+clip for a long `animation` scene with two visual beats. Planning is deterministic and free;
+generation is disabled by default. The existing PNG is center-cover fitted to a derived
+720x1280 JPEG reference without stretching or source mutation. A validated generated clip
+replaces only beat 2. FFmpeg trims it to exact frames, rescales to 1080x1920, ignores provider
+audio, and applies unchanged captions and audio downstream. Invalid or absent clips fall back
+to Phase 8B during offline `render-project`.
+
+Install the optional official SDK with `pip install -e ".[runway]"`; put
+`RUNWAYML_API_SECRET` in ignored `.env`. Before a paid call, set
+`generative_video.enabled: true` in channel YAML. Ordinary `create-content` also requires an
+explicit `--video-provider runway` flag to spend video credits. No test uses Runway.
+
+```powershell
+# Free planning; works while generation is disabled
+python -m youtube_factory generate-video-assets `
+  --project-id eb72074f-ab9f-5dcb-9de2-fcafd3029f85 `
+  --channel engineering-es --provider runway --dry-run --output-dir output
+
+# Paid, only after explicit channel opt-in
+python -m youtube_factory generate-video-assets `
+  --project-id eb72074f-ab9f-5dcb-9de2-fcafd3029f85 `
+  --channel engineering-es --provider runway --output-dir output
+
+# Offline reuse/fallback
+python -m youtube_factory render-project `
+  --project-id eb72074f-ab9f-5dcb-9de2-fcafd3029f85 `
+  --channel engineering-es --renderer ffmpeg --output-dir output
+```
+
+`generative-video-plan.json` records eligibility, score, prompt and requested seconds.
+Success adds `video-references/scene-XX.jpg`, `generated-video/scene-XX.mp4`, and
+`generated-video-assets.json` with measured media properties, task ID, timestamps, and
+source/prompt hashes. Existing clips are reused; `--regenerate` explicitly replaces one.
+No cost is invented if Runway does not report it. Human review remains mandatory.
+
 Run the quality checks:
 
 ```powershell

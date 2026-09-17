@@ -145,6 +145,16 @@ class FFmpegRenderer:
             or len(pacing_plan.scenes) != len(scenes)
         ):
             raise RenderValidationError("visual pacing differs from timed scenes or render FPS")
+        hybrid = inputs.hybrid_visuals
+        if hybrid is not None and (
+            hybrid.topic_id != inputs.timed_scene_plan.topic_id
+            or hybrid.fps != config.fps
+            or pacing_plan is None
+        ):
+            raise RenderValidationError("hybrid composition differs from timed scenes")
+        generated = (
+            {segment.scene_sequence: segment for segment in hybrid.segments} if hybrid else {}
+        )
         for index, (scene, asset) in enumerate(
             zip(scenes, inputs.visual_assets.assets, strict=True)
         ):
@@ -175,7 +185,25 @@ class FFmpegRenderer:
                 or paced.end_frame != end_frame
             ):
                 raise RenderValidationError(f"visual pacing differs from scene {scene.sequence}")
-            if paced is not None and len(paced.beats) == 2:
+            if scene.sequence in generated:
+                segment = generated[scene.sequence]
+                if (
+                    paced is None
+                    or len(paced.beats) != 2
+                    or segment.beat_sequence != 2
+                    or segment.start_frame != paced.beats[1].start_frame
+                    or segment.end_frame != paced.beats[1].end_frame
+                ):
+                    raise RenderValidationError(
+                        "generated video does not match a second visual beat"
+                    )
+                video_index = len(scenes) + list(generated).index(scene.sequence)
+                filters.extend(
+                    FFmpegRenderer._hybrid_beat_filters(
+                        index, label, paced.beats, video_index, config
+                    )
+                )
+            elif paced is not None and len(paced.beats) == 2:
                 filters.extend(FFmpegRenderer._two_beat_filters(index, label, paced.beats, config))
             elif paced is not None and paced.beats[0].motion_type != "static":
                 filters.append(
@@ -190,7 +218,12 @@ class FFmpegRenderer:
                     f"crop={config.width}:{config.height},setsar=1,format={config.pixel_format}"
                     f"[{label}]"
                 )
-        audio_index = len(scenes)
+        for segment in generated.values():
+            path = (inputs.project_directory.resolve() / segment.generated_file_path).resolve()
+            if not path.is_relative_to(inputs.project_directory.resolve()) or not path.is_file():
+                raise RenderValidationError("generated video path is missing or outside project")
+            command.extend(["-i", str(path)])
+        audio_index = len(scenes) + len(generated)
         command.extend(["-i", str(inputs.project_directory.resolve() / inputs.narration.file_path)])
         music_index = None
         if inputs.audio.music.enabled:
@@ -296,6 +329,29 @@ class FFmpegRenderer:
             )
         filters.append(f"[b{index}_0][b{index}_1]concat=n=2:v=1:a=0[{label}]")
         return filters
+
+    @staticmethod
+    def _hybrid_beat_filters(
+        index: int,
+        label: str,
+        beats: list[VisualBeat],
+        video_index: int,
+        config: RenderConfig,
+    ) -> list[str]:
+        first, second = beats
+        return [
+            f"[{index}:v]trim=end_frame=1,setpts=PTS-STARTPTS,"
+            f"{FFmpegRenderer._prepared_image_steps(config)},"
+            f"{FFmpegRenderer._zoompan_steps(first.frame_count, first, config)}"
+            f"[b{index}_0]",
+            f"[{video_index}:v]fps={config.fps},"
+            f"scale={config.width}:{config.height}:force_original_aspect_ratio=increase:"
+            "out_range=tv,"
+            f"crop={config.width}:{config.height},setsar=1,"
+            f"trim=end_frame={second.frame_count},setpts=PTS-STARTPTS,"
+            f"format={config.pixel_format}[b{index}_1]",
+            f"[b{index}_0][b{index}_1]concat=n=2:v=1:a=0[{label}]",
+        ]
 
     def _run(self, command: list[str], stage: str, cwd: Path | None = None) -> str:
         return self._run_capture(command, stage, cwd).stdout
@@ -459,8 +515,12 @@ class FFmpegRenderer:
             or not math.isfinite(fps)
             or abs(duration - inputs.timed_scene_plan.total_duration_seconds) > tolerance
         ):
+            expected_duration = inputs.timed_scene_plan.total_duration_seconds
             raise RenderValidationError(
-                "rendered media differs from configuration or narration timing"
+                "rendered media differs from configuration or narration timing: "
+                f"{width}x{height}, fps={fps}, video={video_codec}/{pixel_format}, "
+                f"audio={audio_codec}/{sample_rate}Hz/{channels}ch, "
+                f"duration={duration:.3f}s, expected={expected_duration:.3f}s"
             )
         return RenderArtifact(
             provider=self.provider,

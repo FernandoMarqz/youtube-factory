@@ -6,6 +6,7 @@ from typing import Protocol
 
 from youtube_factory.application.config import AudioConfig, RenderConfig
 from youtube_factory.domain.models import (
+    HybridVisualCompositionPlan,
     Narration,
     RenderArtifact,
     TimedScenePlan,
@@ -27,6 +28,7 @@ class RenderInputs:
     audio: AudioConfig = field(default_factory=AudioConfig)
     visual_motion: VisualMotionPlan | None = None
     visual_pacing: VisualPacingPlan | None = None
+    hybrid_visuals: HybridVisualCompositionPlan | None = None
 
 
 class Renderer(Protocol):

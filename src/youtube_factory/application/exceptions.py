@@ -101,6 +101,14 @@ class RenderValidationError(RenderError):
     """Raised when render inputs or output media fail validation."""
 
 
+class GenerativeVideoError(ContentPipelineError):
+    """Raised when explicit video generation or its artifacts fail."""
+
+
+class GenerativeVideoConfigurationError(GenerativeVideoError):
+    """Raised before a paid call when the provider is not safely configured."""
+
+
 class AudioProcessingError(RenderError):
     """Raised when deterministic loudness analysis or mixing fails."""
 
