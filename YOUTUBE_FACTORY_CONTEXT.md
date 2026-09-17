@@ -8,8 +8,9 @@ pytest, ruff and mypy are the current baseline. The architecture is a modular mo
 domain contracts, application use cases/services, provider ports, infrastructure adapters and a
 CLI composition root. PostgreSQL, FastAPI, n8n, publishing and analytics are deferred.
 
-Phase 7 adds offline narration loudness normalization, optional local music, ducking and encoded
-audio validation to the existing FFmpeg renderer. Phase 6B per-word ASS emphasis remains intact;
+Phase 7B consumes the existing user-curated `assets/music/catalog.yaml` for offline,
+deterministic soundtrack selection. Phase 7 still owns narration loudness normalization, optional
+music ducking and encoded audio validation. Phase 6B per-word ASS emphasis remains intact;
 the real WAV, canonical caption text and `TimedScenePlan` remain authoritative. FFmpeg
 9.0.1 was already installed on the development machine through winget, but its bin directory was
 missing from the shell's
@@ -59,7 +60,8 @@ modification. Output is 30 fps H.264/AAC/yuv420p MP4 according to typed channel 
 FFmpeg executables are discovered through PATH, with no bundled binary or hardcoded machine path.
 ASS captions are burned in after scene concatenation without changing audio mapping. The renderer
 first analyzes narration with `loudnorm`, then applies measured two-pass normalization. Music is
-off by default; when enabled, one explicitly supplied project-relative audio file is validated,
+selected from the catalog by default for `engineering-es`; disabled and manual modes remain.
+The chosen project-relative audio file is validated,
 looped or allowed to end, gain-adjusted, faded and ducked from the narration sidechain. Mixing
 uses `amix=normalize=0`; a limiter leaves 1 dB AAC headroom. The final stereo 48 kHz AAC is
 measured again. Audible normalized output must land within 2 LU of target and true peak within
@@ -79,7 +81,8 @@ Each project is under `data/projects/<project-id>/` by default, unless `.env` or
 overrides the root. It contains `topic.json`,
 `research.json`, `script.json`, `scenes.json`, `narration.json`, `narration.wav`,
 `timed-scenes.json`, `visual-prompts.json`, `visual-assets.json`, `assets/scene-XX.png`,
-`word-alignment.json`, `captions.json`, `captions/captions.ass`, `audio-mix.json`, `render.json`, `render/short.mp4`
+`word-alignment.json`, `captions.json`, `captions/captions.ass`, `selected-music.json`,
+the selected `assets/music/<category>/<track>.mp3` copy, `audio-mix.json`, `render.json`, `render/short.mp4`
 and `manifest.json`. The manifest inventories artifacts and provider identities, including the
 renderer. Intermediate files are product artifacts, not temp
 files. The render-only use case validates stored media before rendering; it makes no upstream
@@ -108,7 +111,17 @@ MP4 at 36.733333 seconds. Phase 6B validated a real saved legacy plan (112 words
 read-only and generated 115 dynamic ASS events. FFmpeg-backed automated tests pass without any
 paid call. Phase 7 audio config targets -16 LUFS and -1.5 dBTP; an explicitly supplied music
 file must reside within each project (for example `assets/music/background.mp3`) and have suitable
-YouTube usage rights. `audio-mix.json` stores actual input/final measurements and applied settings;
+YouTube usage rights. Phase 7B catalog mode loads all ten existing tracks with safe YAML and
+library-relative path validation. Channel-configured Spanish keyword profiles infer a category,
+moods, topics and energy from Topic + Script. Eligible tracks score suitable topic 4, mood 3,
+profile category 3, niche 2, energy 2 (adjacent 1), and genre 1. Attribution-required tracks are
+excluded unless configured otherwise. A SHA-256 topic-ID hash chooses from the sorted pool within
+two points of the best score; no randomness or OpenAI call is used. The selected track and exact
+catalog license fields are saved in `selected-music.json`, with an audio copy in the project.
+Normal `render-project` reuses the persisted selection even if the catalog changes;
+`--reselect-music` explicitly chooses again. Missing persisted audio fails. The catalog is
+user-owned and is never rewritten by runtime; its licensing claims are not independently checked.
+`audio-mix.json` stores actual input/final measurements and applied settings;
 the manifest stores only mixer identity and music-enabled status. `render-project` changes audio
 offline and does not rewrite WAV, visuals or semantic caption JSON. Listen on several speakers
 before publication; synthetic tests cannot judge music taste or perceived pumping.
@@ -134,6 +147,10 @@ python -m youtube_factory caption-project `
 
 python -m youtube_factory render-project `
   --project-id <project-id> --channel engineering-es --renderer ffmpeg --output-dir output
+
+python -m youtube_factory render-project `
+  --project-id <project-id> --channel engineering-es --renderer ffmpeg `
+  --reselect-music --output-dir output
 
 python -m pytest -q -p no:cacheprovider --basetemp .pytest_tmp
 python -m ruff check .

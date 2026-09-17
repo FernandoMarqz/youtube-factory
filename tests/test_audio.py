@@ -29,6 +29,7 @@ def _audio_config(*, music: bool = False, loop: bool = True) -> AudioConfig:
     config = load_channel_config("engineering-es").audio.model_dump()
     config["music"] |= {
         "enabled": music,
+        "mode": "manual",
         "file_path": "assets/music/test.wav" if music else None,
         "loop": loop,
         "fade_in_seconds": 0.1,
@@ -68,14 +69,14 @@ def test_audio_config_is_typed_immutable_and_validated() -> None:
     assert config.narration.normalize
     assert config.narration.target_lufs == -16
     assert config.narration.true_peak_db == -1.5
-    assert not config.music.enabled
+    assert config.music.enabled and config.music.mode == "catalog"
     with pytest.raises(ValidationError):
         config.music.gain_db = 0
     for section, change in (
         ("narration", {"target_lufs": -5}),
         ("narration", {"true_peak_db": 0}),
-        ("music", {"enabled": True, "file_path": None}),
-        ("music", {"enabled": True, "file_path": "../secret.mp3"}),
+        ("music", {"enabled": True, "mode": "manual", "file_path": None}),
+        ("music", {"enabled": True, "mode": "manual", "file_path": "../secret.mp3"}),
         ("music", {"gain_db": 2}),
         ("music", {"fade_in_seconds": -1}),
         ("ducking", {"ratio": 0}),
@@ -305,8 +306,9 @@ def test_real_narration_only_normalization(tmp_path: Path) -> None:
         sample_rate=16000,
     )
     channel = load_channel_config("engineering-es")
+    narration_only = _audio_config()
     artifact = RenderProjectUseCase(
-        store, FFmpegRenderer(), channel.render, audio=channel.audio
+        store, FFmpegRenderer(), channel.render, audio=narration_only
     ).execute(project_id)
     assert artifact.audio_mix is not None
     assert artifact.audio_mix.normalization_enabled

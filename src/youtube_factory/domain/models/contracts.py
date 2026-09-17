@@ -126,6 +126,56 @@ class AudioMixerMetadata(DomainModel):
     music_enabled: bool
 
 
+class MusicSelectorMetadata(DomainModel):
+    identifier: NonEmptyText
+    mode: Annotated[str, Field(pattern=r"^catalog$")]
+    track_id: NonEmptyText
+
+
+class MusicLicense(DomainModel):
+    source: NonEmptyText
+    source_url: NonEmptyText
+    license_type: NonEmptyText
+    attribution_required: bool
+    attribution_text: str | None = None
+
+    @model_validator(mode="after")
+    def valid_attribution(self) -> MusicLicense:
+        if self.attribution_required and not self.attribution_text:
+            raise ValueError("attribution text is required when attribution is required")
+        return self
+
+
+class MusicSelectionDetails(DomainModel):
+    mode: Annotated[str, Field(pattern=r"^catalog$")]
+    score: int
+    matched_moods: tuple[str, ...] = ()
+    matched_topics: tuple[str, ...] = ()
+    profile: str | None = None
+
+
+class SelectedMusicTrack(DomainModel):
+    track_id: NonEmptyText
+    title: NonEmptyText
+    artist: NonEmptyText
+    file_path: NonEmptyText
+    catalog_file_path: NonEmptyText
+    selection: MusicSelectionDetails
+    license: MusicLicense
+
+    @model_validator(mode="after")
+    def valid_file_path(self) -> SelectedMusicTrack:
+        path = PurePosixPath(self.file_path)
+        if (
+            path.is_absolute()
+            or ".." in path.parts
+            or "\\" in self.file_path
+            or ":" in self.file_path
+        ):
+            raise ValueError("selected music path must be project-relative")
+        return self
+
+
 class CaptionAlignmentMetadata(DomainModel):
     provider: NonEmptyText
     model: NonEmptyText | None = None
@@ -288,6 +338,7 @@ class ContentManifest(DomainModel):
     visual_asset_generator: VisualAssetGeneratorMetadata | None = None
     renderer: RendererMetadata | None = None
     audio_mixer: AudioMixerMetadata | None = None
+    music_selector: MusicSelectorMetadata | None = None
     caption_alignment: CaptionAlignmentMetadata | None = None
     caption_planner: CaptionPlannerMetadata | None = None
 

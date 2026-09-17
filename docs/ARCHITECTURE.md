@@ -14,9 +14,10 @@ Topic -> ResearchResult -> Script -> ScenePlan -> Narration + narration.wav
       -> ASS -> Renderer -> RenderArtifact
 ```
 
-The render input also carries typed audio intent: persisted narration WAV plus optional explicit
-project-local music. Audio analysis/mixing is contained in the FFmpeg adapter, not in domain
-contracts or the creative pipeline.
+The render input also carries typed audio intent: persisted narration WAV plus optional
+project-local music. In catalog mode, an application selector chooses from the existing curated
+`assets/music/catalog.yaml`, persists `selected-music.json` and copies audio into the project.
+Audio analysis/mixing remains in the FFmpeg adapter; it never sees catalog scoring metadata.
 
 `CreateContentUseCase` orchestrates the creative stages and persists their artifacts through
 `ProjectArtifactStore`. The CLI then invokes `RenderProjectUseCase`, which loads those persisted
@@ -24,7 +25,8 @@ media artifacts through the same store and calls a provider-neutral `Renderer`. 
 invokes only the latter use case, so existing paid inputs are reusable without regeneration.
 `CaptionProjectUseCase` separately loads persisted WAV and canonical narration text, aligns and
 persists captions without any creative-stage call. The CLI runs it before rendering when captions
-are enabled. `render-project` can restyle persisted semantic cues without realignment.
+are enabled. `render-project` can restyle persisted semantic cues without realignment and reuse
+an already-selected soundtrack without loading the catalog.
 
 ## Provider Boundaries
 
@@ -118,6 +120,8 @@ data/projects/<project-id>/
   word-alignment.json
   captions.json
   captions/captions.ass
+  selected-music.json
+  assets/music/<category>/<track>.mp3
   audio-mix.json
   render.json
   render/short.mp4
@@ -128,5 +132,8 @@ The artifact store validates persisted WAV, scene count/sequence and PNG content
 render inputs to the renderer. It writes `render.json` and extends `manifest.json` only after a
 successful render. Source JSON and PNG/WAV artifacts remain inspectable for retry and review.
 `audio-mix.json` contains actual measurements and mix settings; manifest metadata identifies the
-audio mixer without duplicating the report. Caption chunks and static per-word color emphasis
+audio mixer without duplicating the report. `selected-music.json` records the chosen track,
+score, matched signals and verbatim curated license metadata; manifest metadata stores only the
+selector identity and track ID. The catalog loader validates all paths structurally, while the
+existing FFmpeg media probe validates the selected file's audio stream. Caption chunks and static per-word color emphasis
 remain intact. Bouncing/scaling text, scene motion, publishing and analytics are later work.

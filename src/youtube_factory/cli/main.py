@@ -126,6 +126,9 @@ def build_parser() -> argparse.ArgumentParser:
     render_project.add_argument("--project-id", required=True)
     render_project.add_argument("--channel", default="engineering-es")
     render_project.add_argument("--renderer", choices=("ffmpeg",), default=None)
+    render_project.add_argument(
+        "--reselect-music", action="store_true", help="Choose a new catalog track for this project."
+    )
     render_project.add_argument("--output-dir", type=Path, default=None)
     caption_project = subcommands.add_parser(
         "caption-project", help="Align and caption existing narration without upstream generation."
@@ -202,7 +205,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             render_use_case = RenderProjectUseCase(
                 store, renderer, channel.render, channel.captions, channel.audio
             )
-            artifact = render_use_case.execute(args.project_id)
+            artifact = render_use_case.execute(args.project_id, reselect_music=args.reselect_music)
         except ContentPipelineError as error:
             raise SystemExit(f"error: {error}") from error
         print(output_root / args.project_id / artifact.file_path)

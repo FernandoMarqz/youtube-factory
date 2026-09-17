@@ -2,10 +2,16 @@
 
 import re
 from dataclasses import replace
+from pathlib import Path
 
 from youtube_factory.application.config import AudioConfig, CaptionConfig, RenderConfig
-from youtube_factory.application.exceptions import CaptionArtifactError
+from youtube_factory.application.exceptions import CaptionArtifactError, MusicSelectionError
 from youtube_factory.application.services.captions import build_ass
+from youtube_factory.application.services.music import (
+    DeterministicCatalogMusicSelector,
+    MusicSelector,
+    load_music_catalog,
+)
 from youtube_factory.domain.models import RenderArtifact
 from youtube_factory.ports import ProjectArtifactStore, Renderer
 
@@ -20,18 +26,45 @@ class RenderProjectUseCase:
         config: RenderConfig,
         captions: CaptionConfig | None = None,
         audio: AudioConfig | None = None,
+        catalog_root: Path | None = None,
+        music_selector: MusicSelector | None = None,
     ) -> None:
         self._artifact_store = artifact_store
         self._renderer = renderer
         self._config = config
         self._captions = captions
         self._audio = audio
+        self._catalog_root = catalog_root or Path(__file__).resolve().parents[4]
+        self._music_selector = music_selector or DeterministicCatalogMusicSelector()
 
-    def execute(self, project_id: str) -> RenderArtifact:
+    def execute(self, project_id: str, *, reselect_music: bool = False) -> RenderArtifact:
         """Render only; no research, script, TTS, or image provider is contacted."""
         inputs = self._artifact_store.load_render_inputs(project_id)
         if self._audio is not None:
             inputs = replace(inputs, audio=self._audio)
+            music = self._audio.music
+            if reselect_music and (not music.enabled or music.mode != "catalog"):
+                raise MusicSelectionError("--reselect-music requires enabled catalog music")
+            if music.enabled and music.mode == "catalog":
+                selection = (
+                    None
+                    if reselect_music
+                    else self._artifact_store.load_music_selection(project_id)
+                )
+                if selection is None:
+                    catalog = load_music_catalog(self._catalog_root / music.catalog_path)
+                    topic, script = self._artifact_store.load_music_context(project_id)
+                    selection, source = self._music_selector.select(
+                        catalog, topic, script, music.selection
+                    )
+                    self._artifact_store.save_music_selection(project_id, selection, source)
+                resolved_music = music.model_copy(
+                    update={"mode": "manual", "file_path": selection.file_path}
+                )
+                inputs = replace(
+                    inputs,
+                    audio=self._audio.model_copy(update={"music": resolved_music}),
+                )
         if self._captions is not None and self._captions.enabled:
             plan = self._artifact_store.load_caption_plan(project_id)
             if plan is not None:

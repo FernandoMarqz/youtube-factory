@@ -62,8 +62,35 @@ audio:
     target_lufs: -16.0
     true_peak_db: -1.5
   music:
-    enabled: false
+    enabled: true
+    mode: catalog
     file_path: null
+    catalog_path: assets/music/catalog.yaml
+    selection:
+      preferred_moods: [curious, modern]
+      preferred_energy: medium
+      preferred_genres: [electronic, ambient]
+      preferred_niches: [engineering, technology, science]
+      allow_attribution_required: false
+      keyword_profiles:
+        futuristic:
+          keywords: [espacio, satelite, planeta, robot, inteligencia artificial, futuro]
+          moods: [futuristic, mysterious]
+          suitable_topics: [space, astronomy, robotics, artificial_intelligence]
+          energy: medium
+          category: futuristic
+        structural:
+          keywords: [puente, puentes, estructura, hormigon, acero, edificio, tunel]
+          moods: [technical, curious]
+          suitable_topics: [structures, infrastructure, structural_engineering]
+          energy: low-medium
+          category: educational
+        high_energy:
+          keywords: [motor, turbina, explosion, velocidad, megaconstruccion]
+          moods: [energetic, powerful, exciting]
+          suitable_topics: [engines, machines, megastructures, energy]
+          energy: high
+          category: energetic
     gain_db: -22.0
     loop: true
     fade_in_seconds: 0.6

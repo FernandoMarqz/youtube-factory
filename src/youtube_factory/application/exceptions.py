@@ -109,6 +109,14 @@ class MusicAssetError(AudioProcessingError):
     """Raised when an explicitly configured music source cannot be used."""
 
 
+class MusicCatalogError(ContentPipelineError):
+    """Raised when the curated catalog is missing or invalid."""
+
+
+class MusicSelectionError(ContentPipelineError):
+    """Raised when no eligible or persisted track can be used."""
+
+
 class AudioValidationError(RenderValidationError):
     """Raised when the rendered audio violates the configured safety bounds."""
 

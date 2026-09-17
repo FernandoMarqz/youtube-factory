@@ -3,11 +3,18 @@
 from pathlib import PurePosixPath
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
 NonEmptyText = Annotated[str, Field(min_length=1)]
 PositiveInt = Annotated[int, Field(gt=0)]
 PositiveFloat = Annotated[float, Field(gt=0)]
+
+
+def _yaml_tuple(value: object) -> object:
+    return tuple(value) if isinstance(value, list) else value
+
+
+TextTuple = Annotated[tuple[NonEmptyText, ...], BeforeValidator(_yaml_tuple)]
 
 
 class ChannelConfigModel(BaseModel):
@@ -153,7 +160,10 @@ class NarrationAudioConfig(ChannelConfigModel):
 
 class MusicConfig(ChannelConfigModel):
     enabled: bool = False
+    mode: Literal["manual", "catalog"] = "manual"
     file_path: NonEmptyText | None = None
+    catalog_path: NonEmptyText = "assets/music/catalog.yaml"
+    selection: "MusicSelectionConfig" = Field(default_factory=lambda: MusicSelectionConfig())
     gain_db: Annotated[float, Field(ge=-60, le=0, allow_inf_nan=False)] = -22.0
     loop: bool = True
     fade_in_seconds: Annotated[float, Field(ge=0, allow_inf_nan=False)] = 0.6
@@ -161,8 +171,19 @@ class MusicConfig(ChannelConfigModel):
 
     @model_validator(mode="after")
     def valid_music_source(self) -> "MusicConfig":
-        if self.enabled and not self.file_path:
-            raise ValueError("enabled music requires a file_path")
+        if self.enabled and self.mode == "manual" and not self.file_path:
+            raise ValueError("enabled manual music requires a file_path")
+        if self.mode == "catalog" and self.file_path:
+            raise ValueError("catalog music cannot specify a manual file_path")
+        catalog = PurePosixPath(self.catalog_path)
+        if (
+            catalog.is_absolute()
+            or ".." in catalog.parts
+            or "\\" in self.catalog_path
+            or ":" in self.catalog_path
+            or catalog.as_posix() != self.catalog_path
+        ):
+            raise ValueError("music catalog_path must be normalized and repository-relative")
         if self.file_path:
             path = PurePosixPath(self.file_path)
             if (
@@ -174,6 +195,24 @@ class MusicConfig(ChannelConfigModel):
             ):
                 raise ValueError("music file_path must be normalized and project-relative")
         return self
+
+
+class MusicKeywordProfile(ChannelConfigModel):
+    keywords: TextTuple = Field(min_length=1)
+    moods: TextTuple = ()
+    suitable_topics: TextTuple = ()
+    niches: TextTuple = ()
+    energy: Literal["low", "low-medium", "medium", "medium-high", "high"] | None = None
+    category: NonEmptyText | None = None
+
+
+class MusicSelectionConfig(ChannelConfigModel):
+    preferred_moods: TextTuple = ()
+    preferred_energy: Literal["low", "low-medium", "medium", "medium-high", "high"] = "medium"
+    preferred_genres: TextTuple = ()
+    preferred_niches: TextTuple = ()
+    allow_attribution_required: bool = False
+    keyword_profiles: dict[str, MusicKeywordProfile] = Field(default_factory=dict)
 
 
 class DuckingConfig(ChannelConfigModel):

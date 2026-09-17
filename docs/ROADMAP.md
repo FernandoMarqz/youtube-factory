@@ -188,6 +188,15 @@ the narration sidechain. A final limiter and encoded-file LUFS/true-peak validat
 clarity. `audio-mix.json` and manifest metadata are persisted; `render-project` applies changes
 without upstream calls. Music is disabled by default and licensing remains the user's decision.
 
+## Phase 7B - Curated Music Selection
+
+Status: complete. The existing ten-track local catalog is validated and consumed without
+rewriting it. Channel-configured Spanish keyword profiles and weighted catalog metadata select a
+track deterministically, with attribution-required tracks excluded by default. The chosen file
+and auditable metadata are persisted per project. `render-project` reuses that choice or explicitly
+reselects with `--reselect-music`; Phase 7 mixing remains unchanged. No acquisition or network
+call was added.
+
 Next: Phase 8, subtle deterministic scene motion and hard-cut polish without changing scene timing.
 
 ---

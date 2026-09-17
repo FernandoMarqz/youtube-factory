@@ -4,7 +4,7 @@ AI-assisted platform for generating, rendering, reviewing, publishing, and analy
 
 ## Current stage
 
-Phase 7: deterministic narration loudness and optional music ducking over captioned video. Rendering requires `ffmpeg` and
+Phase 7B: deterministic selection from a curated local music catalog, followed by Phase 7 loudness and ducking. Rendering requires `ffmpeg` and
 `ffprobe` on PATH; the project does not download or bundle them.
 
 The immediate target is a local vertical slice:
@@ -204,9 +204,17 @@ the render pass. The final AAC is measured again; non-silent normalized narratio
 local fixture WAV is silent, so normalization and the LUFS target are skipped for that source;
 silence is recorded explicitly in `audio-mix.json`. Output audio is centered stereo at 48 kHz.
 
-Music is **disabled by default**. To enable it, place a track you have rights to use at a path
-inside the specific project directory, such as
-`data/projects/<project-id>/assets/music/background.mp3`, then set its project-relative path:
+The `engineering-es` channel now enables `catalog` mode. It reads the existing, user-curated
+`assets/music/catalog.yaml` without modifying the catalog or acquiring new music. Selection
+is deterministic: channel keyword profiles match Spanish topic/script text, then catalog topic,
+mood, category, niche, energy and genre metadata contribute to a weighted score. Tracks requiring
+attribution are excluded by this channel. A stable topic hash chooses among tracks within two
+points of the best score. The chosen track and the catalog's license metadata are saved in
+`selected-music.json`; the audio is copied into the project so later renders are reproducible.
+
+The three modes are `disabled` (`enabled: false`), `manual` (`enabled: true`, `mode: manual`,
+project-relative `file_path`) and `catalog` (`enabled: true`, `mode: catalog`, no `file_path`).
+Manual mode retains the Phase 7 behavior. For example:
 
 ```yaml
 audio:
@@ -216,6 +224,7 @@ audio:
     true_peak_db: -1.5
   music:
     enabled: true
+    mode: manual
     file_path: assets/music/background.mp3
     gain_db: -22.0
     loop: true
@@ -229,13 +238,16 @@ audio:
     release_ms: 350
 ```
 
-The path is resolved inside the project, never against the shell's current directory. The file
-must contain a readable audio stream; it is not copied or modified. Music is resampled to stereo,
+For catalog mode, use `mode: catalog`, `file_path: null`, and
+`catalog_path: assets/music/catalog.yaml` with channel `selection` preferences. The catalog
+path is repository-relative; each track path is resolved relative to the catalog. The chosen
+file must contain a readable audio stream. Music is resampled to stereo,
 trimmed to narration length, optionally looped, faded and lowered by its baseline gain. The
 normalized narration controls `sidechaincompress`, so music recovers during pauses. A conservative
 limiter follows mixing; `amix` does not apply its implicit input normalization. Music shorter than
-the Short ends naturally when `loop: false`, with fade-out at that track's end. No music is bundled,
-downloaded or selected automatically. Check your license and YouTube usage rights before publishing.
+the Short ends naturally when `loop: false`, with fade-out at that track's end. No music is
+downloaded or generated. Catalog license fields are recorded as supplied, not independently
+verified; check actual usage rights before publishing.
 
 Change channel audio settings and rerender persisted media without TTS, images, captions or other
 OpenAI calls:
@@ -247,9 +259,21 @@ python -m youtube_factory render-project `
 ```
 
 `audio-mix.json` records measured input/final loudness, true peak and applied settings;
-`manifest.json` records the audio mixer identity. Source WAV, music, caption and visual artifacts
-are unchanged. Listen on headphones, laptop and phone speakers for clarity, pumping, clipping,
+`manifest.json` records the audio mixer and selector identities. Source WAV, captions and visual
+artifacts remain unchanged. In catalog mode, `render-project` reuses `selected-music.json` even if the catalog
+changes; `--reselect-music` explicitly chooses again. If its project-local MP3 is missing, render
+fails rather than changing the soundtrack. To add tracks later, download manually, put the file
+under `assets/music/`, add an entry with exact license metadata, and validate the catalog by
+running `python -m pytest -q tests/test_music.py`. Listen on headphones, laptop and phone speakers for clarity, pumping, clipping,
 pauses and the first/last second; measurements do not replace listening review.
+
+To deliberately change the selected track for an existing project:
+
+```powershell
+python -m youtube_factory render-project `
+  --project-id <project-id> --channel engineering-es `
+  --renderer ffmpeg --reselect-music --output-dir output
+```
 
 ```powershell
 python -m youtube_factory create-content `
@@ -260,7 +284,7 @@ python -m youtube_factory create-content `
   --caption-alignment openai --renderer ffmpeg
 ```
 
-This full paid command is documentation only; per-word styling itself makes no AI call. Review
+This full paid command is documentation only; Phase 7B itself makes no AI call. Review
 several cues, a two-line cue, punctuation, a fast phrase, a pause, and first/last captions before
 any eventual publication.
 

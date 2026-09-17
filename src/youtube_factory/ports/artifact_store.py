@@ -11,6 +11,7 @@ from youtube_factory.domain.models import (
     ResearchResult,
     ScenePlan,
     Script,
+    SelectedMusicTrack,
     TimedScenePlan,
     Topic,
     VisualAssetManifest,
@@ -71,3 +72,14 @@ class ProjectArtifactStore(Protocol):
 
     def save_caption_ass(self, project_id: str, ass_text: str) -> None:
         """Regenerate styled ASS from an existing plan without realignment."""
+
+    def load_music_selection(self, project_id: str) -> SelectedMusicTrack | None:
+        """Load a persisted catalog choice, checking its project-local audio file."""
+
+    def load_music_context(self, project_id: str) -> tuple[Topic, Script]:
+        """Load provider-neutral text used only for first selection or explicit reselection."""
+
+    def save_music_selection(
+        self, project_id: str, selection: SelectedMusicTrack, source: Path
+    ) -> None:
+        """Copy the chosen audio into the project and persist auditable metadata."""

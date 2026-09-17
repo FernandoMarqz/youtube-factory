@@ -1,6 +1,7 @@
 """Local JSON artifact persistence for Phase 1."""
 
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -11,6 +12,7 @@ from youtube_factory.application.exceptions import (
     ArtifactPersistenceError,
     CaptionArtifactError,
     InvalidAudioArtifactError,
+    MusicSelectionError,
     RenderValidationError,
     VisualAssetValidationError,
 )
@@ -21,12 +23,14 @@ from youtube_factory.domain.models import (
     CaptionPlan,
     CaptionPlannerMetadata,
     ContentManifest,
+    MusicSelectorMetadata,
     Narration,
     RenderArtifact,
     RendererMetadata,
     ResearchResult,
     ScenePlan,
     Script,
+    SelectedMusicTrack,
     TimedScenePlan,
     Topic,
     VisualAssetManifest,
@@ -252,6 +256,66 @@ class FileSystemArtifactStore:
             path.write_text(ass_text, encoding="utf-8")
         except OSError as error:
             raise CaptionArtifactError("could not write ASS captions") from error
+
+    def load_music_context(self, project_id: str) -> tuple[Topic, Script]:
+        directory = self._project_directory(project_id)
+        try:
+            topic = Topic.model_validate_json((directory / "topic.json").read_text("utf-8"))
+            script = Script.model_validate_json((directory / "script.json").read_text("utf-8"))
+        except (OSError, ValueError) as error:
+            raise MusicSelectionError("topic.json or script.json is missing or invalid") from error
+        return topic, script
+
+    def load_music_selection(self, project_id: str) -> SelectedMusicTrack | None:
+        directory = self._project_directory(project_id)
+        path = directory / "selected-music.json"
+        if not path.exists():
+            return None
+        try:
+            selection = SelectedMusicTrack.model_validate_json(path.read_text("utf-8"))
+            audio = self._resolve_project_path(directory, selection.file_path)
+            if not audio.is_file() or audio.stat().st_size == 0:
+                raise MusicSelectionError(
+                    f"persisted selected music is missing: {selection.file_path}"
+                )
+            return selection
+        except (OSError, ValueError, RenderValidationError) as error:
+            raise MusicSelectionError(
+                "selected-music.json is invalid or its audio is missing"
+            ) from error
+
+    def save_music_selection(
+        self, project_id: str, selection: SelectedMusicTrack, source: Path
+    ) -> None:
+        directory = self._project_directory(project_id)
+        try:
+            if not source.is_file() or source.stat().st_size == 0:
+                raise MusicSelectionError(f"selected catalog audio is missing: {source}")
+            manifest = ContentManifest.model_validate_json(
+                (directory / "manifest.json").read_text("utf-8")
+            )
+            target = self._resolve_project_path(directory, selection.file_path)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if source.resolve() != target.resolve():
+                shutil.copyfile(source, target)
+            self._write_model(directory / "selected-music.json", selection)
+            updated = manifest.model_copy(
+                update={
+                    "artifacts": tuple(
+                        dict.fromkeys(
+                            (*manifest.artifacts, selection.file_path, "selected-music.json")
+                        )
+                    ),
+                    "music_selector": MusicSelectorMetadata(
+                        identifier="deterministic-catalog-music-selector-v1",
+                        mode="catalog",
+                        track_id=selection.track_id,
+                    ),
+                }
+            )
+            self._write_model(directory / "manifest.json", updated)
+        except (OSError, ValueError, RenderValidationError) as error:
+            raise MusicSelectionError("could not persist selected music") from error
 
     @staticmethod
     def _resolve_project_path(directory: Path, relative: str) -> Path:
