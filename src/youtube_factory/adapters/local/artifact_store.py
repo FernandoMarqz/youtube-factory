@@ -34,6 +34,10 @@ from youtube_factory.domain.models import (
     TimedScenePlan,
     Topic,
     VisualAssetManifest,
+    VisualMotionMetadata,
+    VisualMotionPlan,
+    VisualPacingMetadata,
+    VisualPacingPlan,
     VisualPromptPlan,
     WordAlignment,
 )
@@ -171,6 +175,48 @@ class FileSystemArtifactStore:
             self._write_model(directory / "manifest.json", updated)
         except OSError as error:
             raise ArtifactPersistenceError("could not persist render metadata") from error
+
+    def save_visual_motion(self, project_id: str, plan: VisualMotionPlan) -> None:
+        directory = self._project_directory(project_id)
+        try:
+            manifest = ContentManifest.model_validate_json(
+                (directory / "manifest.json").read_text("utf-8")
+            )
+            if plan.topic_id != manifest.topic_id:
+                raise RenderValidationError("motion plan belongs to a different topic")
+            self._write_model(directory / "visual-motion.json", plan)
+            updated = manifest.model_copy(
+                update={
+                    "artifacts": tuple(dict.fromkeys((*manifest.artifacts, "visual-motion.json"))),
+                    "visual_motion": VisualMotionMetadata(
+                        identifier=plan.identifier, enabled=plan.enabled
+                    ),
+                }
+            )
+            self._write_model(directory / "manifest.json", updated)
+        except OSError as error:
+            raise ArtifactPersistenceError("could not persist visual motion") from error
+
+    def save_visual_pacing(self, project_id: str, plan: VisualPacingPlan) -> None:
+        directory = self._project_directory(project_id)
+        try:
+            manifest = ContentManifest.model_validate_json(
+                (directory / "manifest.json").read_text("utf-8")
+            )
+            if plan.topic_id != manifest.topic_id:
+                raise RenderValidationError("visual pacing belongs to a different topic")
+            self._write_model(directory / "visual-pacing.json", plan)
+            updated = manifest.model_copy(
+                update={
+                    "artifacts": tuple(dict.fromkeys((*manifest.artifacts, "visual-pacing.json"))),
+                    "visual_pacing": VisualPacingMetadata(
+                        identifier=plan.identifier, enabled=plan.enabled
+                    ),
+                }
+            )
+            self._write_model(directory / "manifest.json", updated)
+        except OSError as error:
+            raise ArtifactPersistenceError("could not persist visual pacing") from error
 
     def load_caption_audio(self, project_id: str) -> tuple[Narration, bytes]:
         directory = self._project_directory(project_id)

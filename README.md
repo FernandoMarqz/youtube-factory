@@ -127,9 +127,9 @@ python -m youtube_factory render-project `
 
 Use `--output-dir <path>` on either command if the project is outside `data/projects`.
 The renderer uses one persisted PNG per timed scene. It scales each image proportionally to cover
-1080x1920 and crops the overflow symmetrically. Hard cuts join the static scenes; the persisted
-WAV becomes the AAC audio track. The target is 30 fps H.264/yuv420p in MP4. No animation or
-transitions are rendered. The final file is `render/short.mp4` and its
+1080x1920 and crops the overflow symmetrically. Hard cuts join scenes; the persisted
+WAV becomes the AAC audio track. The target is 30 fps H.264/yuv420p in MP4. Phase 8 adds
+optional still-image camera motion, but no generated video or transition effects. The final file is `render/short.mp4` and its
 ffprobe-measured metadata is in `render.json`. `manifest.json` lists both and identifies the
 renderer. Duration may differ from the WAV by at most two video frames (frame and AAC rounding).
 
@@ -294,6 +294,39 @@ python -m youtube_factory create-content `
 This full paid command is documentation only; Phase 7B itself makes no AI call. Review
 several cues, a two-line cue, punctuation, a fast phrase, a pause, and first/last captions before
 any eventual publication.
+
+## Phase 8: deterministic scene motion
+
+The channel `visual_motion` section adds restrained motion to the existing PNGs. A provider-neutral
+planner derives `visual-motion.json` from `TimedScenePlan`, the visual manifest and channel settings;
+it uses a stable topic/scene hash for variety and avoids repeated adjacent motions. Supported moves
+are static, slow zoom in/out, pan left/right/up/down and pan with zoom. Zoom is limited to 1.07 by
+default; the configured pan limit is 4% of the prepared image. FFmpeg's `zoompan` uses a 125% cover
+canvas and bounded crop coordinates, so it cannot reveal empty edges. Each scene emits exactly its
+rounded authoritative frame count. Cuts remain hard; free-text transition suggestions are retained
+as metadata, not executed. Captions are burned after scene concatenation and the Phase 7 audio graph
+is unchanged.
+
+`render-project` rebuilds the motion plan and MP4 from saved media with zero provider calls. It
+updates only render-derived artifacts; narration, captions, selected music and visual assets remain
+untouched. Set `visual_motion.enabled: false` to retain static Phase 7 behavior. Review the full
+video for smoothness and composition before publication.
+
+## Phase 8B: intra-scene visual pacing
+
+`visual_pacing` optionally divides a long scene into **at most two** frame-exact beats from its
+existing PNG and Phase 8 `SceneMotion`. Animation-intent scenes qualify from 6.5 seconds, ordinary
+images from 8 seconds; diagrams stay at one beat. Both beats must last at least 2.5 seconds. A
+stable topic/scene hash chooses a 45/50/55% first-beat ratio, rounded against the scene's absolute
+frame boundaries. The second beat starts at the first beat's terminal crop/zoom, then changes
+direction gently. This is camera pacing, not object animation or a second generated image.
+
+`visual-motion.json` remains the scene style; `visual-pacing.json` records the derived beats and
+their absolute frame ranges. FFmpeg splits a prepared image into two `zoompan` branches only for
+two-beat scenes, concatenates those branches, then follows its existing scene concat, ASS and
+audio paths. Set `visual_pacing.enabled: false` for the Phase 8 one-beat behavior. Running
+`render-project` rebuilds both plans offline, without changing the WAV, semantic captions,
+selected music or source PNGs. Scene-to-scene and intra-scene transitions remain hard cuts.
 
 ## Phase 4: visual prompts and assets
 

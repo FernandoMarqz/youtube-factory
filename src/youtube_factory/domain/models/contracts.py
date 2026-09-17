@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from math import isclose
 from pathlib import PurePosixPath
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
@@ -118,6 +118,16 @@ class RendererMetadata(DomainModel):
 
     provider: NonEmptyText
     identifier: NonEmptyText
+
+
+class VisualMotionMetadata(DomainModel):
+    identifier: NonEmptyText
+    enabled: bool
+
+
+class VisualPacingMetadata(DomainModel):
+    identifier: NonEmptyText
+    enabled: bool
 
 
 class AudioMixerMetadata(DomainModel):
@@ -344,6 +354,8 @@ class ContentManifest(DomainModel):
     timing_reconciliation_strategy: NonEmptyText | None = None
     visual_asset_generator: VisualAssetGeneratorMetadata | None = None
     renderer: RendererMetadata | None = None
+    visual_motion: VisualMotionMetadata | None = None
+    visual_pacing: VisualPacingMetadata | None = None
     audio_mixer: AudioMixerMetadata | None = None
     music_selector: MusicSelectorMetadata | None = None
     caption_alignment: CaptionAlignmentMetadata | None = None
@@ -452,6 +464,110 @@ class TimedScenePlan(DomainModel):
             abs_tol=0.001,
         ):
             raise ValueError("timed plan duration must match narration duration")
+        return self
+
+
+MotionType = Literal[
+    "static",
+    "slow_zoom_in",
+    "slow_zoom_out",
+    "pan_left",
+    "pan_right",
+    "pan_up",
+    "pan_down",
+    "pan_zoom_in",
+    "pan_zoom_out",
+]
+
+
+class SceneMotion(DomainModel):
+    scene_sequence: PositiveSequence
+    motion_type: MotionType
+    duration_seconds: PositiveSeconds
+    start_zoom: Annotated[float, Field(ge=1.0, le=1.2)]
+    end_zoom: Annotated[float, Field(ge=1.0, le=1.2)]
+    pan_x_start: Annotated[float, Field(ge=0, le=1)] = 0.5
+    pan_x_end: Annotated[float, Field(ge=0, le=1)] = 0.5
+    pan_y_start: Annotated[float, Field(ge=0, le=1)] = 0.5
+    pan_y_end: Annotated[float, Field(ge=0, le=1)] = 0.5
+    transition_type: Literal["cut"] = "cut"
+
+
+class VisualMotionPlan(DomainModel):
+    identifier: NonEmptyText
+    topic_id: UUID
+    fps: Annotated[int, Field(gt=0)]
+    enabled: bool
+    scenes: list[SceneMotion] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def ordered_scenes(self) -> VisualMotionPlan:
+        if [scene.scene_sequence for scene in self.scenes] != list(range(1, len(self.scenes) + 1)):
+            raise ValueError("motion scenes must be contiguous and ordered")
+        return self
+
+
+class VisualBeat(SceneMotion):
+    """One frame-exact camera interval using its parent scene's PNG."""
+
+    beat_sequence: PositiveSequence
+    start_frame: Annotated[int, Field(ge=0)]
+    end_frame: Annotated[int, Field(gt=0)]
+    frame_count: PositiveSequence
+
+    @model_validator(mode="after")
+    def consistent_frames(self) -> VisualBeat:
+        if self.end_frame - self.start_frame != self.frame_count:
+            raise ValueError("visual beat frame count does not match its boundaries")
+        return self
+
+
+class SceneVisualPacing(DomainModel):
+    scene_sequence: PositiveSequence
+    start_frame: Annotated[int, Field(ge=0)]
+    end_frame: Annotated[int, Field(gt=0)]
+    beats: list[VisualBeat] = Field(min_length=1, max_length=2)
+
+    @model_validator(mode="after")
+    def contiguous_beats(self) -> SceneVisualPacing:
+        if self.beats[0].start_frame != self.start_frame:
+            raise ValueError("first visual beat must start at its scene boundary")
+        if self.beats[-1].end_frame != self.end_frame:
+            raise ValueError("last visual beat must end at its scene boundary")
+        if [beat.beat_sequence for beat in self.beats] != list(range(1, len(self.beats) + 1)):
+            raise ValueError("visual beat sequences must be ordered")
+        if any(beat.scene_sequence != self.scene_sequence for beat in self.beats):
+            raise ValueError("visual beats belong to a different scene")
+        if any(
+            left.end_frame != right.start_frame
+            for left, right in zip(self.beats, self.beats[1:], strict=False)
+        ):
+            raise ValueError("visual beats must have no frame gaps or overlaps")
+        return self
+
+
+class VisualPacingPlan(DomainModel):
+    identifier: NonEmptyText
+    topic_id: UUID
+    fps: Annotated[int, Field(gt=0)]
+    enabled: bool
+    scenes: list[SceneVisualPacing] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def contiguous_scenes(self) -> VisualPacingPlan:
+        if [scene.scene_sequence for scene in self.scenes] != list(range(1, len(self.scenes) + 1)):
+            raise ValueError("visual pacing scenes must be ordered")
+        if self.scenes[0].start_frame != 0:
+            raise ValueError("visual pacing must start at frame zero")
+        if any(
+            left.end_frame != right.start_frame
+            for left, right in zip(self.scenes, self.scenes[1:], strict=False)
+        ):
+            raise ValueError("visual pacing scenes must be frame-contiguous")
+        for scene in self.scenes:
+            for beat in scene.beats:
+                if not isclose(beat.duration_seconds, beat.frame_count / self.fps, abs_tol=0.001):
+                    raise ValueError("visual beat duration must match frame count")
         return self
 
 

@@ -10,6 +10,8 @@ from youtube_factory.domain.models import (
     RenderArtifact,
     TimedScenePlan,
     VisualAssetManifest,
+    VisualMotionPlan,
+    VisualPacingPlan,
 )
 
 
@@ -23,6 +25,8 @@ class RenderInputs:
     visual_assets: VisualAssetManifest
     caption_ass_path: str | None = None
     audio: AudioConfig = field(default_factory=AudioConfig)
+    visual_motion: VisualMotionPlan | None = None
+    visual_pacing: VisualPacingPlan | None = None
 
 
 class Renderer(Protocol):

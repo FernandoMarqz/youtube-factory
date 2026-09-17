@@ -56,6 +56,23 @@ render:
   audio_bitrate: 192k
   pixel_format: yuv420p
 
+visual_motion:
+  enabled: true
+  zoom_min: 1.0
+  zoom_max: 1.07
+  pan_max_percent: 0.04
+  allowed_motion_types: [slow_zoom_in, slow_zoom_out, pan_left, pan_right, pan_zoom_in, pan_zoom_out, pan_down]
+  avoid_adjacent_repeat: true
+
+visual_pacing:
+  enabled: true
+  max_beats_per_scene: 2
+  min_beat_duration_seconds: 2.5
+  second_beat_seconds: 6.5
+  strongly_prefer_second_beat_seconds: 8.0
+  split_ratios: [0.45, 0.50, 0.55]
+  preserve_continuity: true
+
 audio:
   narration:
     normalize: true

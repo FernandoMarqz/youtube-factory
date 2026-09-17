@@ -25,6 +25,8 @@ from youtube_factory.application.config.models import (
     ScenePlanningConfig,
     ScriptConfig,
     VisualConfig,
+    VisualMotionConfig,
+    VisualPacingConfig,
 )
 
 __all__ = [
@@ -46,6 +48,8 @@ __all__ = [
     "ScenePlanningConfig",
     "ScriptConfig",
     "VisualConfig",
+    "VisualMotionConfig",
+    "VisualPacingConfig",
     "get_openai_api_key",
     "get_output_directory",
     "load_channel_config",

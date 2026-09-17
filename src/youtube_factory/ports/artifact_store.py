@@ -15,6 +15,8 @@ from youtube_factory.domain.models import (
     TimedScenePlan,
     Topic,
     VisualAssetManifest,
+    VisualMotionPlan,
+    VisualPacingPlan,
     VisualPromptPlan,
     WordAlignment,
 )
@@ -49,6 +51,12 @@ class ProjectArtifactStore(Protocol):
         self, project_id: str, artifact: RenderArtifact, renderer_identifier: str
     ) -> None:
         """Persist measured render metadata and extend the project manifest."""
+
+    def save_visual_motion(self, project_id: str, plan: VisualMotionPlan) -> None:
+        """Persist render-derived motion and minimal manifest metadata."""
+
+    def save_visual_pacing(self, project_id: str, plan: VisualPacingPlan) -> None:
+        """Persist frame-exact visual beats and minimal manifest metadata."""
 
     def load_caption_audio(self, project_id: str) -> tuple[Narration, bytes]:
         """Read validated persisted narration metadata and WAV."""

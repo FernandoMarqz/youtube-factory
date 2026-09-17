@@ -154,6 +154,68 @@ class RenderConfig(ChannelConfigModel):
         return self
 
 
+MotionName = Literal[
+    "static",
+    "slow_zoom_in",
+    "slow_zoom_out",
+    "pan_left",
+    "pan_right",
+    "pan_up",
+    "pan_down",
+    "pan_zoom_in",
+    "pan_zoom_out",
+]
+
+
+class VisualMotionConfig(ChannelConfigModel):
+    """Conservative, provider-neutral styling for still scene assets."""
+
+    enabled: bool = False
+    zoom_min: Annotated[float, Field(ge=1.0, le=1.2, allow_inf_nan=False)] = 1.0
+    zoom_max: Annotated[float, Field(ge=1.0, le=1.2, allow_inf_nan=False)] = 1.07
+    pan_max_percent: Annotated[float, Field(ge=0, le=0.1, allow_inf_nan=False)] = 0.04
+    allowed_motion_types: Annotated[tuple[MotionName, ...], BeforeValidator(_yaml_tuple)] = (
+        "slow_zoom_in",
+        "slow_zoom_out",
+        "pan_left",
+        "pan_right",
+        "pan_zoom_in",
+    )
+    avoid_adjacent_repeat: bool = True
+    transition_type: Literal["cut"] = "cut"
+
+    @model_validator(mode="after")
+    def valid_motion_range(self) -> "VisualMotionConfig":
+        if self.zoom_max < self.zoom_min:
+            raise ValueError("motion zoom_max must not be below zoom_min")
+        if self.enabled and not self.allowed_motion_types:
+            raise ValueError("enabled visual motion requires allowed motion types")
+        return self
+
+
+class VisualPacingConfig(ChannelConfigModel):
+    """Frame-aligned subdivisions of existing scene camera motion."""
+
+    enabled: bool = False
+    max_beats_per_scene: Annotated[int, Field(ge=1, le=2)] = 2
+    min_beat_duration_seconds: Annotated[float, Field(gt=0, le=10, allow_inf_nan=False)] = 2.5
+    second_beat_seconds: Annotated[float, Field(gt=0, le=30, allow_inf_nan=False)] = 6.5
+    strongly_prefer_second_beat_seconds: Annotated[
+        float, Field(gt=0, le=30, allow_inf_nan=False)
+    ] = 8.0
+    split_ratios: Annotated[
+        tuple[Annotated[float, Field(ge=0.4, le=0.6, allow_inf_nan=False)], ...],
+        BeforeValidator(_yaml_tuple),
+    ] = Field(default=(0.45, 0.5, 0.55), min_length=1)
+    preserve_continuity: bool = True
+
+    @model_validator(mode="after")
+    def ordered_thresholds(self) -> "VisualPacingConfig":
+        if self.second_beat_seconds > self.strongly_prefer_second_beat_seconds:
+            raise ValueError("visual pacing duration thresholds must be ordered")
+        return self
+
+
 class NarrationAudioConfig(ChannelConfigModel):
     normalize: bool = False
     target_lufs: Annotated[float, Field(ge=-30, le=-10, allow_inf_nan=False)] = -16.0
@@ -315,6 +377,8 @@ class ChannelConfig(ChannelConfigModel):
     narration: NarrationConfig
     visuals: VisualConfig
     render: RenderConfig
+    visual_motion: VisualMotionConfig = Field(default_factory=VisualMotionConfig)
+    visual_pacing: VisualPacingConfig = Field(default_factory=VisualPacingConfig)
     audio: AudioConfig = Field(default_factory=AudioConfig)
     captions: CaptionConfig = Field(default_factory=CaptionConfig)
     publishing: PublishingConfig

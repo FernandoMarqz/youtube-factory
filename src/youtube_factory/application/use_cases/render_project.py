@@ -4,14 +4,26 @@ import re
 from dataclasses import replace
 from pathlib import Path
 
-from youtube_factory.application.config import AudioConfig, CaptionConfig, RenderConfig
-from youtube_factory.application.exceptions import CaptionArtifactError, MusicSelectionError
+from youtube_factory.application.config import (
+    AudioConfig,
+    CaptionConfig,
+    RenderConfig,
+    VisualMotionConfig,
+    VisualPacingConfig,
+)
+from youtube_factory.application.exceptions import (
+    CaptionArtifactError,
+    MusicSelectionError,
+    RenderValidationError,
+)
 from youtube_factory.application.services.captions import build_ass
 from youtube_factory.application.services.music import (
     DeterministicCatalogMusicSelector,
     MusicSelector,
     load_music_catalog,
 )
+from youtube_factory.application.services.visual_motion import DeterministicVisualMotionPlanner
+from youtube_factory.application.services.visual_pacing import DeterministicVisualPacingPlanner
 from youtube_factory.domain.models import RenderArtifact
 from youtube_factory.ports import ProjectArtifactStore, Renderer
 
@@ -28,6 +40,8 @@ class RenderProjectUseCase:
         audio: AudioConfig | None = None,
         catalog_root: Path | None = None,
         music_selector: MusicSelector | None = None,
+        visual_motion: VisualMotionConfig | None = None,
+        visual_pacing: VisualPacingConfig | None = None,
     ) -> None:
         self._artifact_store = artifact_store
         self._renderer = renderer
@@ -36,6 +50,8 @@ class RenderProjectUseCase:
         self._audio = audio
         self._catalog_root = catalog_root or Path(__file__).resolve().parents[4]
         self._music_selector = music_selector or DeterministicCatalogMusicSelector()
+        self._visual_motion = visual_motion
+        self._visual_pacing = visual_pacing
 
     def execute(self, project_id: str, *, reselect_music: bool = False) -> RenderArtifact:
         """Render only; no research, script, TTS, or image provider is contacted."""
@@ -93,6 +109,26 @@ class RenderProjectUseCase:
                 )
                 self._artifact_store.save_caption_ass(project_id, ass)
                 inputs = replace(inputs, caption_ass_path="captions/captions.ass")
+        if self._visual_motion is not None:
+            motion_plan = DeterministicVisualMotionPlanner().plan(
+                inputs.timed_scene_plan, inputs.visual_assets, self._visual_motion, self._config.fps
+            )
+            inputs = replace(inputs, visual_motion=motion_plan)
+        if self._visual_pacing is not None:
+            if inputs.visual_motion is None or self._visual_motion is None:
+                raise RenderValidationError("visual pacing requires a scene-level motion plan")
+            pacing_plan = DeterministicVisualPacingPlanner().plan(
+                inputs.timed_scene_plan,
+                inputs.visual_motion,
+                inputs.visual_assets,
+                self._visual_pacing,
+                self._visual_motion,
+            )
+            inputs = replace(inputs, visual_pacing=pacing_plan)
         artifact = self._renderer.render(inputs, self._config)
+        if inputs.visual_motion is not None:
+            self._artifact_store.save_visual_motion(project_id, inputs.visual_motion)
+        if inputs.visual_pacing is not None:
+            self._artifact_store.save_visual_pacing(project_id, inputs.visual_pacing)
         self._artifact_store.save_render(project_id, artifact, self._renderer.identifier)
         return artifact

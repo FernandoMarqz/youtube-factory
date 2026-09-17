@@ -8,10 +8,11 @@ pytest, ruff and mypy are the current baseline. The architecture is a modular mo
 domain contracts, application use cases/services, provider ports, infrastructure adapters and a
 CLI composition root. PostgreSQL, FastAPI, n8n, publishing and analytics are deferred.
 
-Phase 7B.1 improves the content inference used by Phase 7B, which consumes the existing
-user-curated `assets/music/catalog.yaml` for offline,
-deterministic soundtrack selection. Phase 7 still owns narration loudness normalization, optional
-music ducking and encoded audio validation. Phase 6B per-word ASS emphasis remains intact;
+Phase 8B adds frame-exact intra-scene camera beats from existing PNGs; it makes no AI or network
+calls. Phase 8 scene-level motion remains intact. Phase 7B.1 uses the existing user-curated
+`assets/music/catalog.yaml` for offline deterministic soundtrack selection. Phase 7 still owns
+narration loudness normalization, optional music ducking and encoded audio validation. Phase 6B
+per-word ASS emphasis remains intact;
 the real WAV, canonical caption text and `TimedScenePlan` remain authoritative. FFmpeg
 9.0.1 was already installed on the development machine through winget, but its bin directory was
 missing from the shell's
@@ -54,8 +55,8 @@ timeline. Visual prompts are built separately from scene descriptions, then
 `visual-assets.json` maps one persisted PNG per scene with its exact prompt hash. `ANIMATION`
 is editorial intent only.
 
-The renderer reads persisted WAV and PNGs; it never regenerates them. It uses static scenes with
-hard cuts. Images scale proportionally to cover 1080x1920 and are center-cropped without source
+The renderer reads persisted WAV and PNGs; it never regenerates them. It uses derived subtle
+scene motion (or static mode) with hard cuts. Images scale proportionally to cover 1080x1920 without source
 modification. Output is 30 fps H.264/AAC/yuv420p MP4 according to typed channel configuration.
 `ffprobe` checks streams, codecs, size, FPS and duration within two frames of the timed narration.
 FFmpeg executables are discovered through PATH, with no bundled binary or hardcoded machine path.
@@ -67,7 +68,7 @@ looped or allowed to end, gain-adjusted, faded and ducked from the narration sid
 uses `amix=normalize=0`; a limiter leaves 1 dB AAC headroom. The final stereo 48 kHz AAC is
 measured again. Audible normalized output must land within 2 LU of target and true peak within
 0.25 dB of the configured ceiling. Silent local WAV fixtures skip the unattainable LUFS target.
-No scene motion, text animation, AI music or publishing is implemented.
+No text animation, AI music or publishing is implemented.
 
 ## Configuration And Artifacts
 
@@ -83,7 +84,8 @@ overrides the root. It contains `topic.json`,
 `research.json`, `script.json`, `scenes.json`, `narration.json`, `narration.wav`,
 `timed-scenes.json`, `visual-prompts.json`, `visual-assets.json`, `assets/scene-XX.png`,
 `word-alignment.json`, `captions.json`, `captions/captions.ass`, `selected-music.json`,
-the selected `assets/music/<category>/<track>.mp3` copy, `audio-mix.json`, `render.json`, `render/short.mp4`
+the selected `assets/music/<category>/<track>.mp3` copy, `visual-motion.json`,
+`visual-pacing.json`, `audio-mix.json`, `render.json`, `render/short.mp4`
 and `manifest.json`. The manifest inventories artifacts and provider identities, including the
 renderer. Intermediate files are product artifacts, not temp
 files. The render-only use case validates stored media before rendering; it makes no upstream
@@ -181,7 +183,36 @@ AAC, yuv420p, 36.733333 seconds and 128,952 bytes. The local WAV lasts 36.72 sec
 is intentionally silent. `render.json` and `manifest.json` were verified, and `render-project`
 successfully rerendered the same saved inputs.
 
+## Phase 8 Motion
+
+`visual_motion` is typed channel configuration (enabled by default for engineering-es; zoom
+1.00-1.07, pan up to 4%). `DeterministicVisualMotionPlanner` builds provider-neutral scene moves
+from `TimedScenePlan`, `VisualAssetManifest`, scene asset type/visual description and a stable
+topic/scene hash. Adjacent repetition is reduced. `visual-motion.json` is derived render styling,
+rebuilt on every `render-project`; it is not an editorial timing source. FFmpeg `zoompan` animates
+the existing PNGs on a 125% cover canvas and emits exactly the rounded scene-boundary frame count.
+Static remains supported; transitions remain hard cuts. ASS captions and Phase 7 audio processing
+remain downstream and unchanged. No OpenAI, image or narration regeneration is involved. The
+manifest records only motion identity/enabled state. For existing projects, run the normal
+`render-project` command above to apply current styling without `--reselect-music`.
+
+## Phase 8B Visual Beats
+
+`VisualPacingConfig` enables at most two beats per scene (minimum 2.5 s). The deterministic
+planner takes saved timed scenes/assets plus Phase 8 `VisualMotionPlan`, not new images or AI.
+Animation-intent scenes split from 6.5 s; ordinary images from 8 s; diagrams stay one beat.
+The first-beat ratio is selected by stable SHA-256 from 0.45/0.50/0.55. Boundaries are absolute
+rounded frames; the last beat ends exactly at the scene's end frame. Beat 2 starts at Beat 1's
+terminal zoom/crop and changes the camera trajectory without exceeding Phase 8 bounds. FFmpeg
+splits one prepared PNG input into two zoompan branches and concatenates beats before the normal
+scene concat, ASS and audio graph. `visual-pacing.json` is derived render styling, rebuilt by
+`render-project` with zero upstream calls; semantic artifacts and selected music remain fixed.
+The saved aviation project `eb72074f-ab9f-5dcb-9de2-fcafd3029f85` rendered offline in 21.69 s:
+scene 6 is 71 frames/one beat; scene 7 is frames 884-1148, split 132+132. Final media remains
+43.0 s, 1080x1920, 30 fps, H.264/AAC/yuv420p with persisted Top Ten music.
+
 ## Next Milestone
 
-Phase 8: subtle deterministic Ken Burns scene motion and hard-cut polish without changing
-authoritative scene timing. Human review remains required before publication.
+Phase 8C: consider selective transitions only if playback review shows hard cuts are limiting;
+otherwise try generative video selectively for high-value animation-intent scenes.
+Human approval remains required before publication.

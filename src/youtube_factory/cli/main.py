@@ -190,6 +190,8 @@ def main(argv: Sequence[str] | None = None) -> None:
                 channel.render,
                 caption_settings,
                 channel.audio,
+                visual_motion=channel.visual_motion,
+                visual_pacing=channel.visual_pacing,
             )
             render_use_case.execute(str(result.project_id))
         except ContentPipelineError as error:
@@ -203,7 +205,13 @@ def main(argv: Sequence[str] | None = None) -> None:
             store = FileSystemArtifactStore(output_root)
             renderer = build_renderer(channel, args.renderer)
             render_use_case = RenderProjectUseCase(
-                store, renderer, channel.render, channel.captions, channel.audio
+                store,
+                renderer,
+                channel.render,
+                channel.captions,
+                channel.audio,
+                visual_motion=channel.visual_motion,
+                visual_pacing=channel.visual_pacing,
             )
             artifact = render_use_case.execute(args.project_id, reselect_music=args.reselect_music)
         except ContentPipelineError as error:

@@ -205,7 +205,22 @@ specific primary wins over generic educational fallback. Inferred topics, moods 
 keywords are auditable in new selections. Existing choices remain fixed until explicit
 `--reselect-music`; catalog weights, music files and FFmpeg mixing are unchanged.
 
-Next: Phase 8, subtle deterministic scene motion and hard-cut polish without changing scene timing.
+## Phase 8 - Deterministic Visual Motion
+
+Status: complete. A provider-neutral, deterministic motion plan uses persisted timed scenes and
+PNGs. FFmpeg applies restrained zoom/pan behind unchanged captions/audio, preserves exact scene
+frame boundaries and hard cuts, and verifies the final MP4 as before. `render-project` rebuilds
+`visual-motion.json` offline from current channel style. No generative video or new API calls.
+
+## Phase 8B - Intra-Scene Visual Beats
+
+Status: complete. Long animation-intent scenes and long ordinary images can use two deterministic,
+frame-exact camera beats from one persisted PNG. Diagrams remain conservative. Beat concat stays
+inside a scene, preserving its authoritative boundaries and the downstream captions/audio. The
+derived `visual-pacing.json` is rebuilt by offline `render-project`; no new media or API calls.
+
+Next: Phase 8C, assess selective transition polish after perceptual review; otherwise evaluate
+generative video only for high-value animation-intent scenes.
 
 ---
 

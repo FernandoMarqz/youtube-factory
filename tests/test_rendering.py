@@ -9,17 +9,24 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from PIL import Image
+from PIL import Image, ImageChops, ImageDraw, ImageStat
 from pydantic import ValidationError
 
 from youtube_factory.adapters.ffmpeg import FFmpegRenderer
 from youtube_factory.adapters.local import FileSystemArtifactStore
-from youtube_factory.application.config import RenderConfig, load_channel_config
+from youtube_factory.application.config import (
+    RenderConfig,
+    VisualMotionConfig,
+    VisualPacingConfig,
+    load_channel_config,
+)
 from youtube_factory.application.exceptions import (
     RenderError,
     RendererUnavailableError,
     RenderValidationError,
 )
+from youtube_factory.application.services.visual_motion import DeterministicVisualMotionPlanner
+from youtube_factory.application.services.visual_pacing import DeterministicVisualPacingPlanner
 from youtube_factory.application.use_cases import RenderProjectUseCase
 from youtube_factory.domain.enums import AssetType
 from youtube_factory.domain.models import (
@@ -32,6 +39,8 @@ from youtube_factory.domain.models import (
     TimedScenePlan,
     VisualAsset,
     VisualAssetManifest,
+    VisualBeat,
+    VisualPacingPlan,
 )
 from youtube_factory.ports import RenderInputs
 
@@ -163,6 +172,140 @@ def test_render_artifact_rejects_non_project_paths() -> None:
     for path in ("../short.mp4", "C:\\video\\short.mp4", "render\\short.mp4"):
         with pytest.raises(ValidationError):
             RenderArtifact.model_validate(artifact.model_dump() | {"file_path": path})
+
+
+def test_visual_motion_config_and_deterministic_plan(tmp_path: Path) -> None:
+    _, _, inputs = fixture_project(tmp_path)
+    config = load_channel_config("engineering-es").visual_motion
+    planner = DeterministicVisualMotionPlanner()
+    first = planner.plan(inputs.timed_scene_plan, inputs.visual_assets, config, 30)
+    assert first == planner.plan(inputs.timed_scene_plan, inputs.visual_assets, config, 30)
+    assert first.enabled and len(first.scenes) == 2
+    assert all(config.zoom_min <= motion.start_zoom <= config.zoom_max for motion in first.scenes)
+    assert all(config.zoom_min <= motion.end_zoom <= config.zoom_max for motion in first.scenes)
+    assert first.scenes[0].motion_type != first.scenes[1].motion_type
+    disabled = planner.plan(inputs.timed_scene_plan, inputs.visual_assets, VisualMotionConfig(), 30)
+    assert {scene.motion_type for scene in disabled.scenes} == {"static"}
+    with pytest.raises(ValidationError):
+        config.enabled = False
+    for change in (
+        {"zoom_min": 0.9},
+        {"zoom_max": 2.0},
+        {"zoom_min": 1.1, "zoom_max": 1.05},
+        {"pan_max_percent": -0.1},
+        {"allowed_motion_types": ["spin"]},
+        {"allowed_motion_types": []},
+        {"transition_type": "crossfade"},
+    ):
+        with pytest.raises(ValidationError):
+            VisualMotionConfig.model_validate(config.model_dump() | change)
+
+
+def test_motion_uses_asset_type_and_simple_visual_hint(tmp_path: Path) -> None:
+    _, _, inputs = fixture_project(tmp_path)
+    scenes = inputs.timed_scene_plan.scenes
+    timed = inputs.timed_scene_plan.model_copy(
+        update={
+            "scenes": [
+                scenes[0].model_copy(update={"visual_description": "Primer plano de piedra"}),
+                scenes[1].model_copy(update={"asset_type": AssetType.ANIMATION}),
+            ]
+        }
+    )
+    config = VisualMotionConfig(enabled=True, allowed_motion_types=("slow_zoom_in", "pan_zoom_out"))
+    plan = DeterministicVisualMotionPlanner().plan(timed, inputs.visual_assets, config, 30)
+    assert [motion.motion_type for motion in plan.scenes] == ["slow_zoom_in", "pan_zoom_out"]
+
+
+def _pacing_plan(
+    tmp_path: Path,
+    duration: float,
+    asset_type: AssetType,
+    pacing: VisualPacingConfig | None = None,
+) -> VisualPacingPlan:
+    _, _, inputs = fixture_project(tmp_path)
+    scene = Scene.model_validate(
+        inputs.timed_scene_plan.scenes[0].model_dump()
+        | {
+            "start_seconds": 0,
+            "end_seconds": duration,
+            "duration_seconds": duration,
+            "asset_type": asset_type,
+        }
+    )
+    timed = TimedScenePlan.model_validate(
+        inputs.timed_scene_plan.model_dump()
+        | {
+            "scenes": [scene],
+            "total_duration_seconds": duration,
+            "narration_duration_seconds": duration,
+        }
+    )
+    assets = inputs.visual_assets.model_copy(update={"assets": inputs.visual_assets.assets[:1]})
+    channel = load_channel_config("engineering-es")
+    motion = DeterministicVisualMotionPlanner().plan(timed, assets, channel.visual_motion, 30)
+    planner = DeterministicVisualPacingPlanner()
+    settings = pacing or channel.visual_pacing
+    plan = planner.plan(timed, motion, assets, settings, channel.visual_motion)
+    assert plan == planner.plan(timed, motion, assets, settings, channel.visual_motion)
+    return plan
+
+
+@pytest.mark.parametrize(
+    ("duration", "asset_type", "expected"),
+    [
+        (2.365, AssetType.DIAGRAM, 1),
+        (4.5, AssetType.IMAGE, 1),
+        (6.8, AssetType.ANIMATION, 2),
+        (8.815, AssetType.ANIMATION, 2),
+        (9.0, AssetType.IMAGE, 2),
+        (9.0, AssetType.DIAGRAM, 1),
+    ],
+)
+def test_duration_and_asset_aware_visual_beats(
+    tmp_path: Path, duration: float, asset_type: AssetType, expected: int
+) -> None:
+    plan = _pacing_plan(tmp_path, duration, asset_type)
+    scene = plan.scenes[0]
+    assert len(scene.beats) == expected
+    assert sum(beat.frame_count for beat in scene.beats) == round(duration * 30)
+    assert scene.beats[-1].end_frame == round(duration * 30)
+    if expected == 2:
+        first, second = scene.beats
+        assert min(first.frame_count, second.frame_count) >= 75
+        assert first.end_frame == second.start_frame
+        assert first.end_zoom == second.start_zoom
+        assert first.pan_x_end == second.pan_x_start
+        assert first.pan_y_end == second.pan_y_start
+        assert first.motion_type != second.motion_type
+
+
+def test_visual_pacing_config_contracts_and_disabled_mode(tmp_path: Path) -> None:
+    config = load_channel_config("engineering-es").visual_pacing
+    with pytest.raises(ValidationError):
+        config.enabled = False
+    for change in (
+        {"max_beats_per_scene": 0},
+        {"max_beats_per_scene": 3},
+        {"min_beat_duration_seconds": 0},
+        {"second_beat_seconds": 9},
+        {"split_ratios": [0.2]},
+        {"split_ratios": []},
+    ):
+        with pytest.raises(ValidationError):
+            VisualPacingConfig.model_validate(config.model_dump() | change)
+    plan = _pacing_plan(tmp_path, 9.0, AssetType.IMAGE)
+    assert len(plan.scenes[0].beats) == 2
+    disabled = _pacing_plan(
+        tmp_path, 9.0, AssetType.IMAGE, config.model_copy(update={"enabled": False})
+    )
+    assert len(disabled.scenes[0].beats) == 1
+    with pytest.raises(ValidationError):
+        VisualBeat.model_validate(plan.scenes[0].beats[0].model_dump() | {"frame_count": 1})
+    with pytest.raises(ValidationError):
+        VisualPacingPlan.model_validate(
+            plan.model_dump() | {"scenes": [{**plan.scenes[0].model_dump(), "end_frame": 1}]}
+        )
 
 
 def test_store_rejects_missing_media_and_asset_count(tmp_path: Path) -> None:
@@ -330,3 +473,199 @@ def test_real_short_mp4_from_two_static_scenes(tmp_path: Path) -> None:
         "yuv420p",
     )
     assert abs(artifact.duration_seconds - 2) <= 2 / 30
+
+
+@pytest.mark.skipif(
+    not shutil.which("ffmpeg") or not shutil.which("ffprobe"), reason="FFmpeg is unavailable"
+)
+def test_motion_changes_real_frames_without_changing_duration(tmp_path: Path) -> None:
+    project_id, store, inputs = fixture_project(tmp_path)
+    for asset in inputs.visual_assets.assets:
+        image = Image.new("RGB", (64, 96), "white")
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((5, 7, 42, 65), fill="black")
+        draw.ellipse((27, 30, 58, 82), fill="red")
+        image.save(inputs.project_directory / asset.file_path)
+    channel = load_channel_config("engineering-es")
+    artifact = RenderProjectUseCase(
+        store, FFmpegRenderer(), channel.render, visual_motion=channel.visual_motion
+    ).execute(project_id)
+    assert abs(artifact.duration_seconds - 2) <= 2 / 30
+    assert (artifact.width, artifact.height, artifact.frame_rate) == (1080, 1920, 30)
+    plan = json.loads((inputs.project_directory / "visual-motion.json").read_text("utf-8"))
+    assert any(scene["motion_type"] != "static" for scene in plan["scenes"])
+    assert (
+        "visual-motion.json"
+        in json.loads((inputs.project_directory / "manifest.json").read_text("utf-8"))["artifacts"]
+    )
+    video = inputs.project_directory / "render/short.mp4"
+    count = subprocess.run(
+        [
+            shutil.which("ffprobe") or "ffprobe",
+            "-v",
+            "error",
+            "-count_frames",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=nb_read_frames",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(video),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=30,
+    )
+    assert int(count.stdout.strip()) == 60
+    frames = []
+    for instant in ("0.05", "0.85"):
+        result = subprocess.run(
+            [
+                shutil.which("ffmpeg") or "ffmpeg",
+                "-v",
+                "error",
+                "-ss",
+                instant,
+                "-i",
+                str(video),
+                "-frames:v",
+                "1",
+                "-vf",
+                "scale=108:192",
+                "-f",
+                "rawvideo",
+                "-pix_fmt",
+                "rgb24",
+                "-",
+            ],
+            capture_output=True,
+            check=True,
+            timeout=30,
+        )
+        frames.append(result.stdout)
+    assert frames[0] != frames[1]
+    assert len(frames[0]) == 108 * 192 * 3
+    assert frames[0][:3] != b"\0\0\0"
+
+
+@pytest.mark.skipif(
+    not shutil.which("ffmpeg") or not shutil.which("ffprobe"), reason="FFmpeg is unavailable"
+)
+def test_two_visual_beats_keep_exact_frames_and_source_media(tmp_path: Path) -> None:
+    project_id, store, inputs = fixture_project(tmp_path)
+    directory = inputs.project_directory
+    narration = inputs.narration.model_copy(update={"duration_seconds": 10.0})
+    (directory / "narration.json").write_text(narration.model_dump_json(), encoding="utf-8")
+    audio = BytesIO()
+    with wave.open(audio, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(16000)
+        wav.writeframes(b"\0\0" * 160000)
+    (directory / "narration.wav").write_bytes(audio.getvalue())
+    first, second = inputs.timed_scene_plan.scenes
+    timed = TimedScenePlan.model_validate(
+        inputs.timed_scene_plan.model_dump()
+        | {
+            "narration_duration_seconds": 10,
+            "total_duration_seconds": 10,
+            "scenes": [
+                first.model_dump() | {"end_seconds": 9, "duration_seconds": 9},
+                second.model_dump() | {"start_seconds": 9, "end_seconds": 10},
+            ],
+        }
+    )
+    (directory / "timed-scenes.json").write_text(timed.model_dump_json(), encoding="utf-8")
+    image = Image.new("RGB", (64, 96), "white")
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((10, 12, 46, 67), fill="black")
+    draw.ellipse((25, 45, 59, 88), fill="red")
+    image.save(directory / inputs.visual_assets.assets[0].file_path)
+    sources = (
+        "narration.json",
+        "narration.wav",
+        "timed-scenes.json",
+        "visual-assets.json",
+        "assets/scene-01.png",
+        "assets/scene-02.png",
+    )
+    before = {name: (directory / name).read_bytes() for name in sources}
+    channel = load_channel_config("engineering-es")
+    artifact = RenderProjectUseCase(
+        store,
+        FFmpegRenderer(),
+        channel.render,
+        visual_motion=channel.visual_motion,
+        visual_pacing=channel.visual_pacing,
+    ).execute(project_id)
+    assert (artifact.width, artifact.height, artifact.frame_rate) == (1080, 1920, 30)
+    assert (artifact.video_codec, artifact.audio_codec, artifact.pixel_format) == (
+        "h264",
+        "aac",
+        "yuv420p",
+    )
+    assert abs(artifact.duration_seconds - 10) <= 2 / 30
+    assert before == {name: (directory / name).read_bytes() for name in sources}
+    pacing = VisualPacingPlan.model_validate_json(
+        (directory / "visual-pacing.json").read_text("utf-8")
+    )
+    assert [len(scene.beats) for scene in pacing.scenes] == [2, 1]
+    assert [beat.frame_count for beat in pacing.scenes[0].beats] in (
+        [122, 148],
+        [135, 135],
+        [148, 122],
+    )
+    assert pacing.scenes[0].beats[-1].end_frame == 270
+    video = directory / "render/short.mp4"
+    probe = subprocess.run(
+        [
+            shutil.which("ffprobe") or "ffprobe",
+            "-v",
+            "error",
+            "-count_frames",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=nb_read_frames",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(video),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=30,
+    )
+    assert int(probe.stdout.strip()) == 300
+    boundary = pacing.scenes[0].beats[0].end_frame
+    samples = []
+    for frame in (60, boundary - 1, boundary, 210):
+        result = subprocess.run(
+            [
+                shutil.which("ffmpeg") or "ffmpeg",
+                "-v",
+                "error",
+                "-ss",
+                f"{(frame + 0.1) / 30:.6f}",
+                "-i",
+                str(video),
+                "-frames:v",
+                "1",
+                "-vf",
+                "scale=108:192",
+                "-f",
+                "rawvideo",
+                "-pix_fmt",
+                "rgb24",
+                "-",
+            ],
+            capture_output=True,
+            check=True,
+            timeout=30,
+        )
+        samples.append(Image.frombytes("RGB", (108, 192), result.stdout))
+    assert all(sum(ImageStat.Stat(frame).mean) > 30 for frame in samples)
+    difference = ImageChops.difference(samples[0], samples[-1])
+    assert sum(ImageStat.Stat(difference).mean) > 3

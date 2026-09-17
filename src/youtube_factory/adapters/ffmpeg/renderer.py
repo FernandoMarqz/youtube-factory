@@ -1,4 +1,4 @@
-"""Static-scene MP4 rendering and independent ffprobe verification."""
+"""Timed-scene MP4 rendering and independent ffprobe verification."""
 
 import json
 import math
@@ -26,14 +26,14 @@ from youtube_factory.application.exceptions import (
     RendererUnavailableError,
     RenderValidationError,
 )
-from youtube_factory.domain.models import AudioMixReport, RenderArtifact
+from youtube_factory.domain.models import AudioMixReport, RenderArtifact, SceneMotion, VisualBeat
 from youtube_factory.ports import RenderInputs
 
 RENDER_PATH = "render/short.mp4"
 
 
 class FFmpegRenderer:
-    """Render static PNG scenes at authoritative frame boundaries with hard cuts."""
+    """Render persisted PNG scenes at authoritative frame boundaries with hard cuts."""
 
     provider = "ffmpeg"
     identifier = "ffmpeg-renderer-v1"
@@ -130,6 +130,21 @@ class FFmpegRenderer:
         scenes = inputs.timed_scene_plan.scenes
         if len(scenes) != len(inputs.visual_assets.assets):
             raise RenderValidationError("timed scene and visual asset counts differ")
+        motion_plan = inputs.visual_motion
+        if motion_plan is not None and (
+            motion_plan.topic_id != inputs.timed_scene_plan.topic_id
+            or motion_plan.fps != config.fps
+            or len(motion_plan.scenes) != len(scenes)
+        ):
+            raise RenderValidationError("motion plan differs from timed scenes or render FPS")
+        pacing_plan = inputs.visual_pacing
+        if pacing_plan is not None and (
+            motion_plan is None
+            or pacing_plan.topic_id != inputs.timed_scene_plan.topic_id
+            or pacing_plan.fps != config.fps
+            or len(pacing_plan.scenes) != len(scenes)
+        ):
+            raise RenderValidationError("visual pacing differs from timed scenes or render FPS")
         for index, (scene, asset) in enumerate(
             zip(scenes, inputs.visual_assets.assets, strict=True)
         ):
@@ -144,12 +159,37 @@ class FFmpegRenderer:
                 raise RenderValidationError(f"scene {scene.sequence} is shorter than one frame")
             label = f"v{index}"
             labels.append(f"[{label}]")
-            filters.append(
-                f"[{index}:v]trim=end_frame={frames},setpts=PTS-STARTPTS,"
-                f"scale={config.width}:{config.height}:force_original_aspect_ratio=increase,"
-                f"crop={config.width}:{config.height},setsar=1,format={config.pixel_format}"
-                f"[{label}]"
-            )
+            motion = motion_plan.scenes[index] if motion_plan is not None else None
+            if motion is not None and (
+                motion.scene_sequence != scene.sequence
+                or abs(motion.duration_seconds - scene.duration_seconds) > 0.001
+                or motion.transition_type != "cut"
+            ):
+                raise RenderValidationError(
+                    f"motion plan differs from timed scene {scene.sequence}"
+                )
+            paced = pacing_plan.scenes[index] if pacing_plan is not None else None
+            if paced is not None and (
+                paced.scene_sequence != scene.sequence
+                or paced.start_frame != start_frame
+                or paced.end_frame != end_frame
+            ):
+                raise RenderValidationError(f"visual pacing differs from scene {scene.sequence}")
+            if paced is not None and len(paced.beats) == 2:
+                filters.extend(FFmpegRenderer._two_beat_filters(index, label, paced.beats, config))
+            elif paced is not None and paced.beats[0].motion_type != "static":
+                filters.append(
+                    FFmpegRenderer._motion_filter(index, label, frames, paced.beats[0], config)
+                )
+            elif motion is not None and motion.motion_type != "static" and paced is None:
+                filters.append(FFmpegRenderer._motion_filter(index, label, frames, motion, config))
+            else:
+                filters.append(
+                    f"[{index}:v]trim=end_frame={frames},setpts=PTS-STARTPTS,"
+                    f"scale={config.width}:{config.height}:force_original_aspect_ratio=increase,"
+                    f"crop={config.width}:{config.height},setsar=1,format={config.pixel_format}"
+                    f"[{label}]"
+                )
         audio_index = len(scenes)
         command.extend(["-i", str(inputs.project_directory.resolve() / inputs.narration.file_path)])
         music_index = None
@@ -199,6 +239,63 @@ class FFmpegRenderer:
             ]
         )
         return command
+
+    @staticmethod
+    def _motion_filter(
+        index: int, label: str, frames: int, motion: SceneMotion, config: RenderConfig
+    ) -> str:
+        """Animate one still with a bounded crop; output exactly the timed frame count."""
+        return (
+            f"[{index}:v]trim=end_frame=1,setpts=PTS-STARTPTS,"
+            f"{FFmpegRenderer._prepared_image_steps(config)},"
+            f"{FFmpegRenderer._zoompan_steps(frames, motion, config)}[{label}]"
+        )
+
+    @staticmethod
+    def _prepared_image_steps(config: RenderConfig) -> str:
+        width = round(config.width * 1.25 / 2) * 2
+        height = round(config.height * 1.25 / 2) * 2
+        return (
+            f"scale={width}:{height}:force_original_aspect_ratio=increase,"
+            f"crop={width}:{height},setsar=1"
+        )
+
+    @staticmethod
+    def _zoompan_steps(frames: int, motion: SceneMotion, config: RenderConfig) -> str:
+        progress = f"(on/{max(frames - 1, 1)})"
+        zoom = f"({motion.start_zoom}+({motion.end_zoom - motion.start_zoom})*{progress})"
+        x = (
+            f"(iw-iw/zoom)*({motion.pan_x_start}+"
+            f"({motion.pan_x_end - motion.pan_x_start})*{progress})"
+        )
+        y = (
+            f"(ih-ih/zoom)*({motion.pan_y_start}+"
+            f"({motion.pan_y_end - motion.pan_y_start})*{progress})"
+        )
+        return (
+            f"zoompan=z='{zoom}':x='{x}':y='{y}':d={frames}:"
+            f"s={config.width}x{config.height}:fps={config.fps},"
+            f"trim=end_frame={frames},setpts=PTS-STARTPTS,format={config.pixel_format}"
+        )
+
+    @staticmethod
+    def _two_beat_filters(
+        index: int, label: str, beats: list[VisualBeat], config: RenderConfig
+    ) -> list[str]:
+        branches = [f"s{index}b0", f"s{index}b1"]
+        filters = [
+            f"[{index}:v]trim=end_frame=1,setpts=PTS-STARTPTS,"
+            f"{FFmpegRenderer._prepared_image_steps(config)},"
+            f"split=2[{branches[0]}][{branches[1]}]"
+        ]
+        for beat_index, beat in enumerate(beats):
+            filters.append(
+                f"[{branches[beat_index]}]"
+                f"{FFmpegRenderer._zoompan_steps(beat.frame_count, beat, config)}"
+                f"[b{index}_{beat_index}]"
+            )
+        filters.append(f"[b{index}_0][b{index}_1]concat=n=2:v=1:a=0[{label}]")
+        return filters
 
     def _run(self, command: list[str], stage: str, cwd: Path | None = None) -> str:
         return self._run_capture(command, stage, cwd).stdout

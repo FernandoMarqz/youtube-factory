@@ -73,9 +73,10 @@ descriptions. `VisualAssetManifest` maps one persisted PNG to each scene with di
 prompt hash. `ANIMATION` remains editorial intent; the current provider still yields a static PNG.
 
 `FFmpegRenderer` resolves `ffmpeg` and `ffprobe` on PATH and passes argument arrays to subprocess
-with a 600-second timeout. Its filter graph holds each PNG for the frame interval obtained by
-rounding timed start/end boundaries to the configured FPS. It scales each image with preserved
-aspect ratio to cover the output, center-crops excess, and concatenates scenes with hard cuts.
+with a 600-second timeout. Its filter graph emits the frame interval obtained by rounding timed
+start/end boundaries to the configured FPS. Static scenes retain the original cover/crop filter;
+motion scenes use bounded `zoompan` on a proportionally scaled cover canvas. All scenes concatenate
+with hard cuts.
 When a caption plan exists and captions are enabled, FFmpeg appends a libass filter after scene
 concatenation. The ASS path is fixed and project-relative, and FFmpeg runs with the project as its
 working directory to avoid Windows drive-colon and space escaping. Caption burn-in leaves audio
@@ -126,6 +127,8 @@ data/projects/<project-id>/
   selected-music.json
   assets/music/<category>/<track>.mp3
   audio-mix.json
+  visual-motion.json
+  visual-pacing.json
   render.json
   render/short.mp4
   manifest.json
@@ -139,4 +142,19 @@ audio mixer without duplicating the report. `selected-music.json` records the ch
 score, matched signals and verbatim curated license metadata; manifest metadata stores only the
 selector identity and track ID. The catalog loader validates all paths structurally, while the
 existing FFmpeg media probe validates the selected file's audio stream. Caption chunks and static per-word color emphasis
-remain intact. Bouncing/scaling text, scene motion, publishing and analytics are later work.
+remain intact. Phase 8 derives `VisualMotionPlan` from timed scenes, assets and typed channel
+settings on every render. The FFmpeg adapter converts this provider-neutral plan to a bounded
+`zoompan` filter per scene, with exact rounded scene frame counts and hard cuts. Its 125% cover
+canvas preserves aspect ratio and provides resampling headroom; crop positions remain within the
+image. Captions and audio are applied after visual composition. The artifact store persists
+`visual-motion.json` and a small manifest identity, without changing source assets. Publishing
+and analytics are later work.
+
+Phase 8B derives `VisualPacingPlan` from the same timed scenes and assets plus the saved
+`VisualMotionPlan`. Each `SceneVisualPacing` has one or two `VisualBeat` entries whose absolute
+frame ranges partition exactly the rounded scene boundaries. A second beat is favored for long
+animation-intent scenes and long images; diagrams stay single-beat. The second camera trajectory
+starts at the first's terminal geometry. The FFmpeg adapter reuses its image preparation and
+`zoompan` expressions, splitting one PNG input into two filter branches only when necessary.
+Beat concat happens before the unchanged global scene concat; captions and audio stay downstream.
+`visual-pacing.json` and minimal manifest metadata are render-derived, not new editorial timing.
