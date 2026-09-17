@@ -152,6 +152,13 @@ class MusicSelectionDetails(DomainModel):
     matched_moods: tuple[str, ...] = ()
     matched_topics: tuple[str, ...] = ()
     profile: str | None = None
+    matched_profiles: tuple[str, ...] = ()
+    matched_keywords: tuple[str, ...] = ()
+    inferred_topics: tuple[str, ...] = ()
+    inferred_moods: tuple[str, ...] = ()
+    inferred_niches: tuple[str, ...] = ()
+    inferred_genres: tuple[str, ...] = ()
+    inferred_energy: str | None = None
 
 
 class SelectedMusicTrack(DomainModel):

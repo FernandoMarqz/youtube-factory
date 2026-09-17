@@ -4,7 +4,7 @@ AI-assisted platform for generating, rendering, reviewing, publishing, and analy
 
 ## Current stage
 
-Phase 7B: deterministic selection from a curated local music catalog, followed by Phase 7 loudness and ducking. Rendering requires `ffmpeg` and
+Phase 7B.1: deterministic content-profile inference for curated local music selection, followed by Phase 7 loudness and ducking. Rendering requires `ffmpeg` and
 `ffprobe` on PATH; the project does not download or bundle them.
 
 The immediate target is a local vertical slice:
@@ -211,6 +211,13 @@ mood, category, niche, energy and genre metadata contribute to a weighted score.
 attribution are excluded by this channel. A stable topic hash chooses among tracks within two
 points of the best score. The chosen track and the catalog's license metadata are saved in
 `selected-music.json`; the audio is copied into the project so later renders are reproducible.
+Phase 7B.1 builds a separate `ContentMusicProfile` from topic title plus structured script text.
+Matching ignores case, accents and punctuation while respecting word boundaries, including
+multi-word phrases. Phrase matches count 3; token matches count 1. The strongest specific profile
+wins (name breaks ties), while relevant secondary and educational profiles add signals. The
+primary profile sets energy; channel defaults apply when nothing matches. `selected-music.json`
+records the primary profile, matching profiles/keywords and inferred topics/moods separately
+from matches with the chosen catalog track. Catalog scoring weights and audio mixing are unchanged.
 
 The three modes are `disabled` (`enabled: false`), `manual` (`enabled: true`, `mode: manual`,
 project-relative `file_path`) and `catalog` (`enabled: true`, `mode: catalog`, no `file_path`).

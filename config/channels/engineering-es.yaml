@@ -73,24 +73,35 @@ audio:
       preferred_niches: [engineering, technology, science]
       allow_attribution_required: false
       keyword_profiles:
-        futuristic:
-          keywords: [espacio, satelite, planeta, robot, inteligencia artificial, futuro]
-          moods: [futuristic, mysterious]
-          suitable_topics: [space, astronomy, robotics, artificial_intelligence]
+        futuristic_technology:
+          keywords: [espacio, satelite, satelites, planeta, robot, robots, inteligencia artificial, ia, futuro, ordenador, computadora, chip, semiconductor]
+          topics: [technology, ai, computing, space, astronomy, robotics, artificial_intelligence]
+          moods: [futuristic, curious, modern]
+          genres: [electronic, ambient]
           energy: medium
           category: futuristic
-        structural:
-          keywords: [puente, puentes, estructura, hormigon, acero, edificio, tunel]
-          moods: [technical, curious]
-          suitable_topics: [structures, infrastructure, structural_engineering]
-          energy: low-medium
+        structural_infrastructure:
+          keywords: [puente, puentes, estructura, hormigon, acero, edificio, tunel, via, vias, via ferrea, ferrocarril, tren, trenes, traviesa, traviesas, balasto, concreto, viaducto, infraestructura, juntas de dilatacion]
+          topics: [engineering, infrastructure, transportation, structures, structural_engineering]
+          moods: [technical, curious, modern]
+          niches: [engineering, science]
+          genres: [electronic, ambient]
+          energy: medium
           category: educational
-        high_energy:
-          keywords: [motor, turbina, explosion, velocidad, megaconstruccion]
-          moods: [energetic, powerful, exciting]
-          suitable_topics: [engines, machines, megastructures, energy]
+        machinery_energy:
+          keywords: [motor, motores, turbina, reactor, maquina, maquinas, velocidad, energia, avion, aviones, explosion, megaconstruccion]
+          topics: [machines, engines, energy, transportation, megastructures]
+          moods: [powerful, energetic, technological]
+          genres: [electronic, rock]
           energy: high
           category: energetic
+        general_educational:
+          keywords: [por que, como funciona, explicacion, curiosidad]
+          topics: [engineering, science, everyday_engineering, curiosities]
+          moods: [curious, educational, clean]
+          genres: [ambient, electronic]
+          energy: low-medium
+          fallback: true
     gain_db: -22.0
     loop: true
     fade_in_seconds: 0.6

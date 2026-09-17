@@ -5,6 +5,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
+from youtube_factory.application.music_text import normalize_music_text
+
 NonEmptyText = Annotated[str, Field(min_length=1)]
 PositiveInt = Annotated[int, Field(gt=0)]
 PositiveFloat = Annotated[float, Field(gt=0)]
@@ -200,10 +202,22 @@ class MusicConfig(ChannelConfigModel):
 class MusicKeywordProfile(ChannelConfigModel):
     keywords: TextTuple = Field(min_length=1)
     moods: TextTuple = ()
+    topics: TextTuple = ()
     suitable_topics: TextTuple = ()
     niches: TextTuple = ()
+    genres: TextTuple = ()
     energy: Literal["low", "low-medium", "medium", "medium-high", "high"] | None = None
     category: NonEmptyText | None = None
+    fallback: bool = False
+
+    @model_validator(mode="after")
+    def unique_keywords(self) -> "MusicKeywordProfile":
+        normalized = [normalize_music_text(keyword) for keyword in self.keywords]
+        if "" in normalized or len(normalized) != len(set(normalized)):
+            raise ValueError(
+                "music profile keywords must be non-empty and unique after normalization"
+            )
+        return self
 
 
 class MusicSelectionConfig(ChannelConfigModel):
@@ -213,6 +227,13 @@ class MusicSelectionConfig(ChannelConfigModel):
     preferred_niches: TextTuple = ()
     allow_attribution_required: bool = False
     keyword_profiles: dict[str, MusicKeywordProfile] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def unique_profile_names(self) -> "MusicSelectionConfig":
+        normalized = [normalize_music_text(name) for name in self.keyword_profiles]
+        if "" in normalized or len(normalized) != len(set(normalized)):
+            raise ValueError("music profile names must be non-empty and unique")
+        return self
 
 
 class DuckingConfig(ChannelConfigModel):

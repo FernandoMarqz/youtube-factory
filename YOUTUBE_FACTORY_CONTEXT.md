@@ -8,7 +8,8 @@ pytest, ruff and mypy are the current baseline. The architecture is a modular mo
 domain contracts, application use cases/services, provider ports, infrastructure adapters and a
 CLI composition root. PostgreSQL, FastAPI, n8n, publishing and analytics are deferred.
 
-Phase 7B consumes the existing user-curated `assets/music/catalog.yaml` for offline,
+Phase 7B.1 improves the content inference used by Phase 7B, which consumes the existing
+user-curated `assets/music/catalog.yaml` for offline,
 deterministic soundtrack selection. Phase 7 still owns narration loudness normalization, optional
 music ducking and encoded audio validation. Phase 6B per-word ASS emphasis remains intact;
 the real WAV, canonical caption text and `TimedScenePlan` remain authoritative. FFmpeg
@@ -113,7 +114,14 @@ paid call. Phase 7 audio config targets -16 LUFS and -1.5 dBTP; an explicitly su
 file must reside within each project (for example `assets/music/background.mp3`) and have suitable
 YouTube usage rights. Phase 7B catalog mode loads all ten existing tracks with safe YAML and
 library-relative path validation. Channel-configured Spanish keyword profiles infer a category,
-moods, topics and energy from Topic + Script. Eligible tracks score suitable topic 4, mood 3,
+moods, topics and energy from Topic + Script. `ContentMusicProfileBuilder` compares accent-
+insensitive whole tokens and phrases (1/3 points) across topic title, hook, body and ending.
+Specific profiles rank by match score then name; relevant secondaries and generic educational
+profiles merge signals in stable order. Primary energy wins; a named `default` uses channel
+preferences when no profile matches. `MusicCatalogScorer` stays separate and retains the Phase 7B
+weights. New `selected-music.json` files include profile, matched profiles/keywords and inferred
+topics/moods/niches/genres; old selections load unchanged. The railway/ballast example now infers
+`structural_infrastructure` rather than a null profile. Eligible tracks score suitable topic 4, mood 3,
 profile category 3, niche 2, energy 2 (adjacent 1), and genre 1. Attribution-required tracks are
 excluded unless configured otherwise. A SHA-256 topic-ID hash chooses from the sorted pool within
 two points of the best score; no randomness or OpenAI call is used. The selected track and exact
@@ -121,6 +129,10 @@ catalog license fields are saved in `selected-music.json`, with an audio copy in
 Normal `render-project` reuses the persisted selection even if the catalog changes;
 `--reselect-music` explicitly chooses again. Missing persisted audio fails. The catalog is
 user-owned and is never rewritten by runtime; its licensing claims are not independently checked.
+The saved railway/ballast project `8fbe0dc3-cfa1-54fa-9ddf-d0591e3b8c35` was reselection-
+rendered offline: previous `Touch` changed to `New Morning`, with primary
+`structural_infrastructure`, matched railway keywords, inferred transportation/infrastructure,
+and a validated 44.9-second H.264/AAC MP4. No upstream provider was called.
 `audio-mix.json` stores actual input/final measurements and applied settings;
 the manifest stores only mixer identity and music-enabled status. `render-project` changes audio
 offline and does not rewrite WAV, visuals or semantic caption JSON. Listen on several speakers

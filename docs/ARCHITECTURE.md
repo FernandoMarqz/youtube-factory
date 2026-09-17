@@ -18,6 +18,9 @@ The render input also carries typed audio intent: persisted narration WAV plus o
 project-local music. In catalog mode, an application selector chooses from the existing curated
 `assets/music/catalog.yaml`, persists `selected-music.json` and copies audio into the project.
 Audio analysis/mixing remains in the FFmpeg adapter; it never sees catalog scoring metadata.
+`ContentMusicProfileBuilder` separately infers typed intent from Topic + Script with
+channel-configured Spanish phrases/tokens. `MusicCatalogScorer` consumes that profile while
+retaining Phase 7B weights; the selector applies eligibility and stable-hash variety.
 
 `CreateContentUseCase` orchestrates the creative stages and persists their artifacts through
 `ProjectArtifactStore`. The CLI then invokes `RenderProjectUseCase`, which loads those persisted

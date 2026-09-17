@@ -1,7 +1,5 @@
 """Typed curated music loading and deterministic, offline track selection."""
 
-import re
-import unicodedata
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path, PurePosixPath
@@ -10,8 +8,9 @@ from typing import Annotated, Literal, Protocol
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-from youtube_factory.application.config.models import MusicSelectionConfig
+from youtube_factory.application.config.models import MusicKeywordProfile, MusicSelectionConfig
 from youtube_factory.application.exceptions import MusicCatalogError, MusicSelectionError
+from youtube_factory.application.music_text import matches_music_phrase, normalize_music_text
 from youtube_factory.domain.models import (
     MusicLicense,
     MusicSelectionDetails,
@@ -111,15 +110,118 @@ def load_music_catalog(path: Path) -> LoadedMusicCatalog:
         raise MusicCatalogError(f"invalid music catalog {path}: {error}") from error
 
 
-def _normalize(value: str) -> str:
-    value = unicodedata.normalize("NFKD", value.casefold())
-    value = "".join(character for character in value if not unicodedata.combining(character))
-    return " ".join(re.findall(r"\w+", value, flags=re.UNICODE))
+@dataclass(frozen=True, slots=True)
+class ContentMusicProfile:
+    primary_name: str
+    matched_profiles: tuple[str, ...]
+    matched_keywords: tuple[str, ...]
+    topics: tuple[str, ...]
+    moods: tuple[str, ...]
+    niches: tuple[str, ...]
+    genres: tuple[str, ...]
+    energy: Energy
+    category: str | None
+    normalized_text: str
 
 
-def _matches(text: str, phrase: str) -> bool:
-    normalized = _normalize(phrase.replace("_", " "))
-    return bool(normalized and f" {normalized} " in f" {text} ")
+def _ordered_unique(*groups: tuple[str, ...]) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(item for group in groups for item in group))
+
+
+class ContentMusicProfileBuilder:
+    """Infer channel-specific intent from canonical topic and script components."""
+
+    def build(
+        self, topic: Topic, script: Script, preferences: MusicSelectionConfig
+    ) -> ContentMusicProfile:
+        if script.topic_id != topic.id:
+            raise MusicSelectionError("script and topic differ for music selection")
+        text = normalize_music_text(
+            " ".join((topic.title, script.hook, script.body, script.ending))
+        )
+        matches: list[tuple[str, MusicKeywordProfile, int, tuple[str, ...]]] = []
+        for name, profile in preferences.keyword_profiles.items():
+            keywords = tuple(word for word in profile.keywords if matches_music_phrase(text, word))
+            if keywords:
+                score = sum(
+                    3 if len(normalize_music_text(word).split()) > 1 else 1 for word in keywords
+                )
+                matches.append((name, profile, score, keywords))
+        specific = sorted(
+            (entry for entry in matches if not entry[1].fallback),
+            key=lambda entry: (-entry[2], entry[0]),
+        )
+        general = sorted(
+            (entry for entry in matches if entry[1].fallback),
+            key=lambda entry: (-entry[2], entry[0]),
+        )
+        # A lone incidental secondary token should not dilute a much stronger profile.
+        relevant_specific = (
+            [specific[0]]
+            + [entry for entry in specific[1:] if entry[2] >= 2 or entry[2] >= specific[0][2] - 1]
+            if specific
+            else []
+        )
+        ordered = (*relevant_specific, *general)
+        primary = ordered[0] if ordered else None
+        return ContentMusicProfile(
+            primary_name=primary[0] if primary else "default",
+            matched_profiles=tuple(entry[0] for entry in ordered),
+            matched_keywords=_ordered_unique(*(entry[3] for entry in ordered)),
+            topics=_ordered_unique(
+                *(entry[1].topics + entry[1].suitable_topics for entry in ordered)
+            ),
+            moods=_ordered_unique(
+                *(entry[1].moods for entry in ordered), preferences.preferred_moods
+            ),
+            niches=_ordered_unique(
+                *(entry[1].niches for entry in ordered), preferences.preferred_niches
+            ),
+            genres=_ordered_unique(
+                *(entry[1].genres for entry in ordered), preferences.preferred_genres
+            ),
+            energy=(
+                primary[1].energy if primary and primary[1].energy else preferences.preferred_energy
+            ),
+            category=primary[1].category if primary else None,
+            normalized_text=text,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class TrackMusicScore:
+    score: int
+    track: MusicTrack
+    matched_moods: tuple[str, ...]
+    matched_topics: tuple[str, ...]
+
+
+class MusicCatalogScorer:
+    """Preserve the Phase 7B catalog weights independently of semantic inference."""
+
+    def score(self, track: MusicTrack, profile: ContentMusicProfile) -> TrackMusicScore:
+        matched_topics = tuple(sorted(set(profile.topics).intersection(track.suitable_topics)))
+        matched_moods = tuple(sorted(set(profile.moods).intersection(track.moods)))
+        direct_topics = tuple(
+            item
+            for item in track.suitable_topics
+            if matches_music_phrase(profile.normalized_text, item)
+        )
+        energy_gap = abs(ENERGY_LEVELS.index(profile.energy) - ENERGY_LEVELS.index(track.energy))
+        score = (
+            (4 if matched_topics or direct_topics else 0)
+            + (3 if matched_moods else 0)
+            + (3 if profile.category == track.category else 0)
+            + (2 if set(profile.niches).intersection(track.niches) else 0)
+            + (2 if energy_gap == 0 else 1 if energy_gap == 1 else 0)
+            + (1 if set(profile.genres).intersection(track.genres) else 0)
+        )
+        return TrackMusicScore(
+            score,
+            track,
+            matched_moods,
+            tuple(sorted(set(matched_topics + direct_topics))),
+        )
 
 
 class DeterministicCatalogMusicSelector:
@@ -134,28 +236,7 @@ class DeterministicCatalogMusicSelector:
         script: Script,
         preferences: MusicSelectionConfig,
     ) -> tuple[SelectedMusicTrack, Path]:
-        if script.topic_id != topic.id:
-            raise MusicSelectionError("script and topic differ for music selection")
-        text = _normalize(f"{topic.title} {script.full_narration}")
-        profiles = [
-            (name, profile, sum(_matches(text, word) for word in profile.keywords))
-            for name, profile in preferences.keyword_profiles.items()
-        ]
-        profiles.sort(key=lambda item: (-item[2], item[0]))
-        profile_name, profile, hits = profiles[0] if profiles else (None, None, 0)
-        if not hits:
-            profile_name, profile = None, None
-        moods = set(preferences.preferred_moods)
-        niches = set(preferences.preferred_niches)
-        topics: set[str] = set()
-        energy = preferences.preferred_energy
-        category = None
-        if profile is not None:
-            moods.update(profile.moods)
-            niches.update(profile.niches)
-            topics.update(profile.suitable_topics)
-            energy = profile.energy or energy
-            category = profile.category
+        profile = ContentMusicProfileBuilder().build(topic, script, preferences)
         eligible = [
             track
             for track in catalog.catalog.tracks
@@ -163,26 +244,16 @@ class DeterministicCatalogMusicSelector:
         ]
         if not eligible:
             raise MusicSelectionError("no eligible music tracks after attribution filtering")
-        scored: list[tuple[int, MusicTrack, tuple[str, ...], tuple[str, ...]]] = []
-        for track in eligible:
-            matched_topics = tuple(sorted(topics.intersection(track.suitable_topics)))
-            matched_moods = tuple(sorted(moods.intersection(track.moods)))
-            direct_topics = tuple(item for item in track.suitable_topics if _matches(text, item))
-            energy_gap = abs(ENERGY_LEVELS.index(energy) - ENERGY_LEVELS.index(track.energy))
-            score = (
-                (4 if matched_topics or direct_topics else 0)
-                + (3 if matched_moods else 0)
-                + (3 if category == track.category else 0)
-                + (2 if niches.intersection(track.niches) else 0)
-                + (2 if energy_gap == 0 else 1 if energy_gap == 1 else 0)
-                + (1 if set(preferences.preferred_genres).intersection(track.genres) else 0)
-            )
-            all_topics = tuple(sorted(set(matched_topics + direct_topics)))
-            scored.append((score, track, matched_moods, all_topics))
-        best = max(score for score, _, _, _ in scored)
-        pool = sorted((entry for entry in scored if entry[0] >= best - 2), key=lambda e: e[1].id)
+        scorer = MusicCatalogScorer()
+        scored = [scorer.score(track, profile) for track in eligible]
+        best = max(entry.score for entry in scored)
+        pool = sorted(
+            (entry for entry in scored if entry.score >= best - 2),
+            key=lambda entry: entry.track.id,
+        )
         choice = int.from_bytes(sha256(str(topic.id).encode("ascii")).digest()[:8], "big")
-        score, track, matched_moods, matched_topics = pool[choice % len(pool)]
+        chosen = pool[choice % len(pool)]
+        track = chosen.track
         selected = SelectedMusicTrack(
             track_id=track.id,
             title=track.title,
@@ -191,10 +262,17 @@ class DeterministicCatalogMusicSelector:
             catalog_file_path=track.file_path,
             selection=MusicSelectionDetails(
                 mode="catalog",
-                score=score,
-                matched_moods=matched_moods,
-                matched_topics=matched_topics,
-                profile=profile_name,
+                score=chosen.score,
+                matched_moods=chosen.matched_moods,
+                matched_topics=chosen.matched_topics,
+                profile=profile.primary_name,
+                matched_profiles=profile.matched_profiles,
+                matched_keywords=profile.matched_keywords,
+                inferred_topics=profile.topics,
+                inferred_moods=profile.moods,
+                inferred_niches=profile.niches,
+                inferred_genres=profile.genres,
+                inferred_energy=profile.energy,
             ),
             license=MusicLicense(
                 source=track.source,

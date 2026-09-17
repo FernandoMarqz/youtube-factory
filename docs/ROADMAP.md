@@ -197,6 +197,14 @@ and auditable metadata are persisted per project. `render-project` reuses that c
 reselects with `--reselect-music`; Phase 7 mixing remains unchanged. No acquisition or network
 call was added.
 
+## Phase 7B.1 - Semantic Music Profiles
+
+Status: complete. Deterministic, channel-configured Spanish phrase/token matching now builds a
+typed content profile before catalog scoring. Multiple relevant profiles merge signals; a
+specific primary wins over generic educational fallback. Inferred topics, moods and matched
+keywords are auditable in new selections. Existing choices remain fixed until explicit
+`--reselect-music`; catalog weights, music files and FFmpeg mixing are unchanged.
+
 Next: Phase 8, subtle deterministic scene motion and hard-cut polish without changing scene timing.
 
 ---

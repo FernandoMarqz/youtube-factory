@@ -26,6 +26,17 @@ reopening the catalog. `--reselect-music` explicitly reruns selection and overwr
 The FFmpeg mixer still receives only a resolved project-relative file path and existing mix
 settings. Disabled and manual modes bypass the catalog entirely.
 
+Phase 7B.1 separates `ContentMusicProfileBuilder` from `MusicCatalogScorer`. The builder matches
+topic title and structured script components using accent-insensitive, whole-token/phrase
+comparison. Channel-configured phrases score 3 and single tokens score 1. Non-fallback profiles
+compete for primary by score, then name; generic fallback profiles cannot outrank a specific one.
+Secondary specific profiles contribute when they have at least two points or score within one of
+the primary, avoiding incidental single-word dilution. All matched generic profiles contribute.
+The primary sets energy and category; relevant profiles merge unique topics, moods, niches and
+genres in deterministic order. With no match, channel defaults form a named `default` profile.
+The catalog scoring weights and stable-hash choice are unchanged. New selection metadata records
+inferred signals separately from catalog-track intersections; older selections remain readable.
+
 ## Consequences
 
 - Existing projects keep their soundtrack when catalog order or scoring changes.

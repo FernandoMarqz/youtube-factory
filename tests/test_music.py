@@ -14,8 +14,11 @@ from test_rendering import fixture_project
 from youtube_factory.adapters.ffmpeg import FFmpegRenderer
 from youtube_factory.adapters.local import FileSystemArtifactStore
 from youtube_factory.application.config import AudioConfig, RenderConfig, load_channel_config
+from youtube_factory.application.config.models import MusicKeywordProfile
 from youtube_factory.application.exceptions import MusicCatalogError, MusicSelectionError
+from youtube_factory.application.music_text import matches_music_phrase, normalize_music_text
 from youtube_factory.application.services.music import (
+    ContentMusicProfileBuilder,
     DeterministicCatalogMusicSelector,
     LoadedMusicCatalog,
     load_music_catalog,
@@ -67,14 +70,16 @@ def _catalog(tmp_path: Path, tracks: list[dict[str, object]]) -> LoadedMusicCata
     return load_music_catalog(root / "catalog.yaml")
 
 
-def _topic_script(title: str, topic_id: UUID | None = None) -> tuple[Topic, Script]:
+def _topic_script(
+    title: str, topic_id: UUID | None = None, body: str = "Una explicación breve."
+) -> tuple[Topic, Script]:
     topic = Topic(id=topic_id or uuid4(), title=title)
     script = Script(
         topic_id=topic.id,
         hook=title,
-        body="Una explicación breve.",
+        body=body,
         ending="Ahora lo sabes.",
-        full_narration=f"{title} Una explicación breve. Ahora lo sabes.",
+        full_narration=f"{title} {body} Ahora lo sabes.",
         hook_type=HookType.QUESTION,
         estimated_duration_seconds=30,
         claims=["A test claim"],
@@ -140,6 +145,125 @@ def test_channel_music_modes_are_immutable_and_validated() -> None:
             type(channel.audio.music).model_validate(payload)
 
 
+def test_music_keyword_matching_handles_accents_phrases_and_boundaries() -> None:
+    text = normalize_music_text("¿Cómo funciona la vía férrea junto al hormigón?")
+    assert matches_music_phrase(text, "como funciona")
+    assert matches_music_phrase(text, "vía férrea")
+    assert matches_music_phrase(text, "via ferrea")
+    assert matches_music_phrase(text, "hormigon")
+    assert not matches_music_phrase(normalize_music_text("La lluvia cambia"), "ia")
+    assert not matches_music_phrase(normalize_music_text("Química"), "maquina")
+
+
+def test_music_profile_config_rejects_duplicate_normalized_keywords_and_names() -> None:
+    with pytest.raises(ValidationError, match="unique after normalization"):
+        MusicKeywordProfile(keywords=("vía", "via"))
+    with pytest.raises(ValidationError):
+        MusicKeywordProfile(keywords=("tren",), moods=("",))
+    with pytest.raises(ValidationError):
+        MusicKeywordProfile(keywords=("tren",), energy="fast")  # type: ignore[arg-type]
+    selection = load_channel_config("engineering-es").audio.music.selection
+    payload = selection.model_dump()
+    profile = {"keywords": ("tren",)}
+    payload["keyword_profiles"] = {"Rail": profile, "rail": profile}
+    with pytest.raises(ValidationError, match="names must be non-empty and unique"):
+        type(selection).model_validate(payload)
+
+
+def test_railway_infers_structural_profile_and_auditable_signals() -> None:
+    topic, script = _topic_script(
+        "¿Por qué las vias del tren tienen piedra debajo y no solo concreto liso?",
+        body="El balasto sujeta las traviesas; el concreto liso no sustituye siempre a la vía.",
+    )
+    preferences = load_channel_config("engineering-es").audio.music.selection
+    profile = ContentMusicProfileBuilder().build(topic, script, preferences)
+    assert profile.primary_name == "structural_infrastructure"
+    assert profile.matched_profiles == ("structural_infrastructure", "general_educational")
+    assert {"tren", "balasto", "traviesas", "concreto"}.issubset(profile.matched_keywords)
+    assert {"engineering", "infrastructure", "transportation"}.issubset(profile.topics)
+    assert {"technical", "curious"}.issubset(profile.moods)
+    assert profile.energy == "medium"
+    catalog = load_music_catalog(Path(__file__).resolve().parents[1] / "assets/music/catalog.yaml")
+    selected, _ = DeterministicCatalogMusicSelector().select(catalog, topic, script, preferences)
+    assert selected.selection.profile == "structural_infrastructure"
+    assert selected.selection.matched_topics
+    assert "transportation" in selected.selection.inferred_topics
+    assert "technical" in selected.selection.inferred_moods
+
+
+def test_futuristic_machinery_general_and_default_profiles() -> None:
+    preferences = load_channel_config("engineering-es").audio.music.selection
+    builder = ContentMusicProfileBuilder()
+    ai = builder.build(
+        *_topic_script("¿Cómo aprende una inteligencia artificial?", body="Usa datos."),
+        preferences,
+    )
+    assert ai.primary_name == "futuristic_technology"
+    assert {"technology", "ai", "space"}.issubset(ai.topics)
+    assert "futuristic" in ai.moods
+    engine = builder.build(
+        *_topic_script(
+            "¿Por qué un motor a reacción produce tanto empuje?", body="El motor acelera aire."
+        ),
+        preferences,
+    )
+    assert engine.primary_name == "machinery_energy"
+    assert engine.energy == "high"
+    assert {"machines", "engines", "transportation"}.issubset(engine.topics)
+    general = builder.build(
+        *_topic_script("¿Por qué sucede esto?", body="Un detalle interesante."),
+        preferences,
+    )
+    assert general.primary_name == "general_educational"
+    default = builder.build(
+        *_topic_script("Objeto peculiar", body="Detalles sin palabras clave."),
+        preferences,
+    )
+    assert default.primary_name == "default"
+    assert default.matched_profiles == ()
+    assert default.energy == preferences.preferred_energy
+    assert set(preferences.preferred_moods).issubset(default.moods)
+
+
+def test_profile_phrase_weight_tiebreak_merge_and_primary_energy() -> None:
+    preferences = load_channel_config("engineering-es").audio.music.selection
+    custom = preferences.model_copy(
+        update={
+            "keyword_profiles": {
+                "alpha": MusicKeywordProfile(
+                    keywords=("inteligencia artificial",),
+                    topics=("ai",),
+                    moods=("futuristic",),
+                    energy="medium",
+                ),
+                "beta": MusicKeywordProfile(
+                    keywords=("artificial", "tecnologia"),
+                    topics=("technology",),
+                    moods=("modern",),
+                    energy="high",
+                ),
+            }
+        }
+    )
+    builder = ContentMusicProfileBuilder()
+    profile = builder.build(
+        *_topic_script("Inteligencia artificial", body="Tecnología moderna."), custom
+    )
+    assert profile.primary_name == "alpha"  # phrase +3 beats token +1
+    assert profile.matched_profiles == ("alpha", "beta")
+    assert profile.topics == ("ai", "technology")
+    assert profile.energy == "medium"
+    tied = custom.model_copy(
+        update={
+            "keyword_profiles": {
+                "zeta": MusicKeywordProfile(keywords=("artificial",), energy="high"),
+                "alpha": MusicKeywordProfile(keywords=("inteligencia",), energy="low"),
+            }
+        }
+    )
+    assert builder.build(*_topic_script("Inteligencia artificial"), tied).primary_name == "alpha"
+
+
 def test_selector_uses_multiple_signals_and_licensing_filter(tmp_path: Path) -> None:
     catalog = _catalog(
         tmp_path,
@@ -159,7 +283,7 @@ def test_selector_uses_multiple_signals_and_licensing_filter(tmp_path: Path) -> 
         catalog, topic, script, load_channel_config("engineering-es").audio.music.selection
     )
     assert choice.track_id == "bridge"
-    assert choice.selection.profile == "structural"
+    assert choice.selection.profile == "structural_infrastructure"
     assert choice.selection.matched_topics == ("structures",)
     assert choice.license.source == "test-catalog"
     restricted = _catalog(tmp_path, [_track("credit", attribution=True)])
@@ -191,15 +315,16 @@ def test_each_scoring_signal_contributes_independently(tmp_path: Path) -> None:
         good_score = selector.select(preferred, topic, script, baseline)[0].selection.score
         bad_score = selector.select(other, topic, script, baseline)[0].selection.score
         assert good_score > bad_score, name
-    genres = baseline.model_copy(update={"preferred_genres": ("electronic",)})
-    no_genres = baseline.model_copy(update={"preferred_genres": ()})
+    isolated = baseline.model_copy(update={"keyword_profiles": {}})
+    genres = isolated.model_copy(update={"preferred_genres": ("electronic",)})
+    no_genres = isolated.model_copy(update={"preferred_genres": ()})
     catalog = _catalog(tmp_path / "genre", [_track("one")])
     assert (
         selector.select(catalog, topic, script, genres)[0].selection.score
         > selector.select(catalog, topic, script, no_genres)[0].selection.score
     )
-    niches = baseline.model_copy(update={"preferred_niches": ("engineering",)})
-    no_niches = baseline.model_copy(update={"preferred_niches": ()})
+    niches = isolated.model_copy(update={"preferred_niches": ("engineering",)})
+    no_niches = isolated.model_copy(update={"preferred_niches": ()})
     assert (
         selector.select(catalog, topic, script, niches)[0].selection.score
         > selector.select(catalog, topic, script, no_niches)[0].selection.score
@@ -211,14 +336,14 @@ def test_real_catalog_topic_profiles_and_stable_variety(tmp_path: Path) -> None:
     catalog = load_music_catalog(path)
     selector = DeterministicCatalogMusicSelector()
     preferences = load_channel_config("engineering-es").audio.music.selection
-    for title, category in (
-        ("¿Por qué los puentes tienen juntas de dilatación?", "educational"),
-        ("¿Cómo funciona un satélite en el espacio?", "futuristic"),
-        ("¿Cómo funciona el motor de una megaconstrucción?", "energetic"),
+    for title, profile_name in (
+        ("¿Por qué los puentes tienen juntas de dilatación?", "structural_infrastructure"),
+        ("¿Cómo funciona un satélite en el espacio?", "futuristic_technology"),
+        ("¿Cómo funciona el motor de una megaconstrucción?", "machinery_energy"),
     ):
         topic, script = _topic_script(title)
         selected, _ = selector.select(catalog, topic, script, preferences)
-        assert selected.catalog_file_path.startswith(f"{category}/")
+        assert selected.selection.profile == profile_name
         assert selector.select(catalog, topic, script, preferences)[0] == selected
     varied = _catalog(tmp_path, [_track("a"), _track("b"), _track("c")])
     choices = {
@@ -304,8 +429,19 @@ def test_reselection_manual_and_disabled_modes(tmp_path: Path) -> None:
         store, renderer, channel.render, audio=channel.audio, catalog_root=tmp_path
     )
     use_case.execute(project_id)
-    use_case.execute(project_id, reselect_music=True)
-    assert len(renderer.music_paths) == 2
+    selected_path = inputs.project_directory / "selected-music.json"
+    original = selected_path.read_bytes()
+    simplified = channel.audio.music.selection.model_copy(update={"keyword_profiles": {}})
+    changed_music = channel.audio.music.model_copy(update={"selection": simplified})
+    changed_audio = channel.audio.model_copy(update={"music": changed_music})
+    changed_use_case = RenderProjectUseCase(
+        store, renderer, channel.render, audio=changed_audio, catalog_root=tmp_path
+    )
+    changed_use_case.execute(project_id)
+    assert selected_path.read_bytes() == original
+    changed_use_case.execute(project_id, reselect_music=True)
+    assert json.loads(selected_path.read_bytes())["selection"]["profile"] == "default"
+    assert len(renderer.music_paths) == 3
     manual = AudioConfig.model_validate(
         channel.audio.model_dump()
         | {
